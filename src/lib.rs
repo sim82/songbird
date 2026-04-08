@@ -8,6 +8,6 @@ pub mod audio;
 pub mod config;
 pub mod engine;
 pub mod samples;
-pub mod streams;
+pub mod voices;
 
 pub use engine::Engine;

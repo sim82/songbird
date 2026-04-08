@@ -20,20 +20,20 @@ impl SampleLoader {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<AudioBuffer, String> {
         let path = path.as_ref();
 
-        let mut file = File::open(path)
-            .map_err(|e| format!("Failed to open WAV file: {}", e))?;
+        let mut file = File::open(path).map_err(|e| format!("Failed to open WAV file: {}", e))?;
 
-        let (header, data) = wav::read(&mut file)
-            .map_err(|e| format!("Failed to read WAV file: {}", e))?;
+        let (header, data) =
+            wav::read(&mut file).map_err(|e| format!("Failed to read WAV file: {}", e))?;
 
         let sample_rate = header.sampling_rate;
         let channels = header.channel_count as usize;
 
         // Convert bit depth to f32 samples
         let samples_f32 = match data {
-            wav::BitDepth::Eight(samples) => {
-                samples.iter().map(|&s| (s as f32 - 128.0) / 128.0).collect()
-            }
+            wav::BitDepth::Eight(samples) => samples
+                .iter()
+                .map(|&s| (s as f32 - 128.0) / 128.0)
+                .collect(),
             wav::BitDepth::Sixteen(samples) => {
                 samples.iter().map(|&s| s as f32 / 32768.0).collect()
             }
@@ -75,12 +75,10 @@ impl SampleLoader {
 
                 Ok(AudioBuffer::new_stereo(left, right, sample_rate))
             }
-            ch => {
-                Err(format!(
-                    "Unsupported channel count: {} (expected 1 or 2)",
-                    ch
-                ))
-            }
+            ch => Err(format!(
+                "Unsupported channel count: {} (expected 1 or 2)",
+                ch
+            )),
         }
     }
 }

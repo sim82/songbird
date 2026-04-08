@@ -2,16 +2,16 @@
 
 ## Project Overview
 
-Songbird is an ambient sound synthesis framework written in Rust. It orchestrates multiple concurrent audio streams with probabilistic sample scheduling, stereo panning, and hot-reloadable YAML configuration.
+Songbird is an ambient sound synthesis framework written in Rust. It orchestrates multiple concurrent audio voices with probabilistic sample scheduling, stereo panning, and hot-reloadable YAML configuration.
 
 ### Core Architecture
 
 The system is organized into modular layers:
-- **Streams**: Two playback modes (continuous overlapping samples and event-driven "bird" mode)
+- **Voices**: Two playback modes (continuous overlapping samples and discrete event-driven mode)
 - **Audio**: Buffers, stereo mixing with panning, and platform audio output abstraction
 - **Samples**: WAV file loading and in-memory caching
 - **Config**: YAML parsing, validation, and file watching for hot-reload
-- **Engine**: Main orchestrator coordinating streams, mixing, and output
+- **Engine**: Main orchestrator coordinating voices, mixing, and output
 
 ## Build, Test, and Lint Commands
 
@@ -53,15 +53,16 @@ src/
 │   ├── buffer.rs        # AudioBuffer primitives (stereo/mono)
 │   ├── mixer.rs         # Stereo mixing with panning
 │   └── output.rs        # OS audio layer abstraction (stub)
-├── streams/
+├── voices/
 │   ├── mod.rs
-│   ├── config.rs        # StreamConfig and StreamMode types
+│   ├── config.rs        # VoiceConfig and VoiceMode types
 │   ├── continuous.rs    # Continuous-mode scheduler (overlapping)
-│   ├── bird.rs          # Bird-mode scheduler (event-driven)
-│   └── state.rs         # Per-stream playback state
+│   ├── discrete.rs      # Discrete-mode scheduler (event-driven)
+│   ├── state.rs         # Per-voice playback state
+│   └── manager.rs       # VoiceManager orchestration
 ├── samples/
 │   ├── mod.rs
-│   ├── loader.rs        # WAV file loading (stub, Phase 2)
+│   ├── loader.rs        # WAV file loading
 │   └── cache.rs         # In-memory sample cache
 ├── config/
 │   ├── mod.rs
@@ -79,16 +80,16 @@ src/
 - **Minimal dependencies**: Only essential crates used (serde, serde_yaml, rand, notify, wav)
 - **Module structure**: Public API exported via mod.rs in each module; internal types use `pub use`
 
-## Stream Concepts
+## Voice Concepts
 
 - **Continuous Mode**: Probabilistically selects and overlaps multiple samples from a pool (e.g., water splattering)
-- **Bird Mode**: Event-driven playback of individual, non-overlapping samples (e.g., rain drops, bird chirps)
+- **Discrete Mode**: Event-driven playback of individual, non-overlapping samples (e.g., rain drops, bird chirps)
 - **Pan**: Stereo positioning from -1.0 (full left) to 1.0 (full right), 0.0 (center)
 
 ## Notes
 
-- Phase 1 (Foundation) is complete: modules, types, and tests in place
-- Phases 2-7 focus on audio infrastructure, scheduling logic, mixing, output, config hot-reload, and CLI
-- Stub implementations exist for WAV loading (Phase 2) and file watching (Phase 6); integrate with actual crate APIs when reaching those phases
+- Phases 1-3 complete: modules, types, and tests in place
+- Phases 4-7 focus on mixing/panning, audio output, config hot-reload, and CLI
+- Stub implementations exist for file watching (Phase 6); integrate with notify crate when reached
 - OS audio output layer (Phase 5) uses minimal abstraction for future portability
 

@@ -1,18 +1,18 @@
-//! Main synthesis engine orchestrating streams, mixing, and output.
+//! Main synthesis engine orchestrating voices, mixing, and output.
 
 use crate::audio::AudioBuffer;
 use crate::samples::SampleCache;
-use crate::streams::{StreamConfig, StreamState};
+use crate::voices::{VoiceConfig, VoiceState};
 
 /// Main synthesis engine coordinating audio playback.
 #[derive(Debug)]
 pub struct Engine {
     /// Sample cache.
     pub sample_cache: SampleCache,
-    /// Active streams.
-    pub streams: Vec<StreamState>,
-    /// Stream configurations.
-    pub stream_configs: Vec<StreamConfig>,
+    /// Active voices.
+    pub voices: Vec<VoiceState>,
+    /// Voice configurations.
+    pub voice_configs: Vec<VoiceConfig>,
     /// Sample rate in Hz.
     pub sample_rate: u32,
     /// Is the engine running?
@@ -24,18 +24,18 @@ impl Engine {
     pub fn new(sample_rate: u32) -> Self {
         Self {
             sample_cache: SampleCache::new(),
-            streams: Vec::new(),
-            stream_configs: Vec::new(),
+            voices: Vec::new(),
+            voice_configs: Vec::new(),
             sample_rate,
             is_running: false,
         }
     }
 
-    /// Add a stream configuration to the engine.
-    pub fn add_stream(&mut self, config: StreamConfig) {
-        let state = StreamState::new(config.id.clone());
-        self.stream_configs.push(config);
-        self.streams.push(state);
+    /// Add a voice configuration to the engine.
+    pub fn add_voice(&mut self, config: VoiceConfig) {
+        let state = VoiceState::new(config.id.clone());
+        self.voice_configs.push(config);
+        self.voices.push(state);
     }
 
     /// Start the synthesis engine.
@@ -70,24 +70,24 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::streams::config::StreamMode;
+    use crate::voices::config::VoiceMode;
 
     #[test]
     fn test_engine_creation() {
         let engine = Engine::new(44100);
         assert_eq!(engine.sample_rate, 44100);
         assert!(!engine.is_running);
-        assert!(engine.streams.is_empty());
+        assert!(engine.voices.is_empty());
     }
 
     #[test]
-    fn test_add_stream() {
+    fn test_add_voice() {
         let mut engine = Engine::new(44100);
-        let config = StreamConfig::new("test".to_string(), StreamMode::Continuous);
-        engine.add_stream(config);
+        let config = VoiceConfig::new("test".to_string(), VoiceMode::Continuous);
+        engine.add_voice(config);
 
-        assert_eq!(engine.streams.len(), 1);
-        assert_eq!(engine.stream_configs.len(), 1);
+        assert_eq!(engine.voices.len(), 1);
+        assert_eq!(engine.voice_configs.len(), 1);
     }
 
     #[test]

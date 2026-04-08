@@ -1,11 +1,11 @@
-//! Per-stream playback state.
+//! Per-voice playback state.
 
 use std::collections::HashMap;
 
-/// Playback state for a single stream.
+/// Playback state for a single voice.
 #[derive(Debug, Clone)]
-pub struct StreamState {
-    /// Stream identifier.
+pub struct VoiceState {
+    /// Voice identifier.
     pub id: String,
     /// Currently playing sample index (in the sample pool).
     pub current_sample_index: usize,
@@ -13,14 +13,14 @@ pub struct StreamState {
     pub playback_position: usize,
     /// Remaining time until next event trigger (in samples).
     pub next_event_countdown: usize,
-    /// Is the stream currently active?
+    /// Is the voice currently active?
     pub is_active: bool,
     /// Metadata for continuous mode scheduling.
     pub metadata: HashMap<String, f32>,
 }
 
-impl StreamState {
-    /// Create a new stream state.
+impl VoiceState {
+    /// Create a new voice state.
     pub fn new(id: String) -> Self {
         Self {
             id,

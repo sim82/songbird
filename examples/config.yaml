@@ -4,7 +4,7 @@
 sample_rate: 44100
 sample_dir: "./samples"
 
-streams:
+voices:
   # Continuous mode example: water splattering (overlapping samples)
   - id: water
     mode: continuous
@@ -17,9 +17,9 @@ streams:
     min_delay_ms: 500
     max_delay_ms: 2000
 
-  # Bird mode example: rain drops (random, non-overlapping)
+  # Discrete mode example: rain drops (random, non-overlapping)
   - id: rain
-    mode: bird
+    mode: discrete
     pan: 0.2
     probability: 0.5
     samples:
@@ -29,7 +29,7 @@ streams:
     min_delay_ms: 100
     max_delay_ms: 500
 
-  # Another continuous stream: ambience
+  # Another continuous voice: ambience
   - id: wind
     mode: continuous
     pan: 0.5

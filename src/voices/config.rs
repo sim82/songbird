@@ -1,36 +1,36 @@
-//! Stream configuration types.
+//! Voice configuration types.
 
-/// Stream playback mode.
+/// Voice playback mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StreamMode {
+pub enum VoiceMode {
     /// Continuous overlapping samples.
     Continuous,
-    /// Event-driven, non-overlapping bird mode.
-    Bird,
+    /// Discrete (event-driven), non-overlapping samples.
+    Discrete,
 }
 
-/// Configuration for a single stream.
+/// Configuration for a single voice.
 #[derive(Debug, Clone)]
-pub struct StreamConfig {
-    /// Unique identifier for the stream.
+pub struct VoiceConfig {
+    /// Unique identifier for the voice.
     pub id: String,
-    /// Stream playback mode.
-    pub mode: StreamMode,
+    /// Voice playback mode.
+    pub mode: VoiceMode,
     /// Pan position (-1.0 left to 1.0 right).
     pub pan: f32,
     /// Probability of triggering (0.0 to 1.0).
     pub probability: f32,
     /// Sample pool: list of sample identifiers.
     pub sample_pool: Vec<String>,
-    /// Minimum delay between events (milliseconds, for bird mode).
+    /// Minimum delay between events (milliseconds, for discrete mode).
     pub min_delay_ms: u32,
-    /// Maximum delay between events (milliseconds, for bird mode).
+    /// Maximum delay between events (milliseconds, for discrete mode).
     pub max_delay_ms: u32,
 }
 
-impl StreamConfig {
-    /// Create a new stream configuration.
-    pub fn new(id: String, mode: StreamMode) -> Self {
+impl VoiceConfig {
+    /// Create a new voice configuration.
+    pub fn new(id: String, mode: VoiceMode) -> Self {
         Self {
             id,
             mode,

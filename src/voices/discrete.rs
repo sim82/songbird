@@ -1,21 +1,21 @@
-//! Bird-mode stream scheduler.
+//! Discrete-mode voice scheduler.
 //!
 //! Handles event-driven, non-overlapping sample playback.
 
 use rand::Rng;
 
-/// Represents a scheduled bird event for sample playback.
+/// Represents a scheduled discrete event for sample playback.
 #[derive(Debug, Clone)]
-pub struct BirdEvent {
+pub struct DiscreteEvent {
     /// Sample index to play (from pool).
     pub sample_index: usize,
     /// Delay before playback starts (in samples).
     pub delay_samples: usize,
 }
 
-/// Bird-mode scheduler for event-driven, non-overlapping samples.
+/// Discrete-mode scheduler for event-driven, non-overlapping samples.
 #[derive(Debug)]
-pub struct BirdScheduler {
+pub struct DiscreteScheduler {
     /// Probability of triggering an event (0.0 to 1.0).
     pub probability: f32,
     /// Minimum delay between events (samples).
@@ -24,8 +24,8 @@ pub struct BirdScheduler {
     pub max_delay: usize,
 }
 
-impl BirdScheduler {
-    /// Create a new bird scheduler.
+impl DiscreteScheduler {
+    /// Create a new discrete scheduler.
     pub fn new(probability: f32, min_delay: usize, max_delay: usize) -> Self {
         Self {
             probability: probability.clamp(0.0, 1.0),
@@ -39,13 +39,13 @@ impl BirdScheduler {
         rng.gen_range(0.0..1.0) < self.probability
     }
 
-    /// Schedule next bird event.
-    pub fn schedule_event(&self, pool_size: usize, rng: &mut impl Rng) -> Option<BirdEvent> {
+    /// Schedule next discrete event.
+    pub fn schedule_event(&self, pool_size: usize, rng: &mut impl Rng) -> Option<DiscreteEvent> {
         if !self.should_trigger(rng) {
             return None;
         }
 
-        Some(BirdEvent {
+        Some(DiscreteEvent {
             sample_index: self.select_sample(pool_size, rng),
             delay_samples: self.next_delay(rng),
         })
@@ -66,7 +66,7 @@ impl BirdScheduler {
     }
 }
 
-impl Default for BirdScheduler {
+impl Default for DiscreteScheduler {
     fn default() -> Self {
         Self::new(0.1, 22050, 88200) // 0.5 to 2 seconds at 44.1 kHz
     }
@@ -77,18 +77,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_bird_trigger_probability() {
-        let scheduler = BirdScheduler::new(1.0, 100, 200); // Always trigger
+    fn test_discrete_trigger_probability() {
+        let scheduler = DiscreteScheduler::new(1.0, 100, 200); // Always trigger
         let mut rng = rand::thread_rng();
         assert!(scheduler.should_trigger(&mut rng));
 
-        let scheduler = BirdScheduler::new(0.0, 100, 200); // Never trigger
+        let scheduler = DiscreteScheduler::new(0.0, 100, 200); // Never trigger
         assert!(!scheduler.should_trigger(&mut rng));
     }
 
     #[test]
-    fn test_bird_schedule_event() {
-        let scheduler = BirdScheduler::new(1.0, 1000, 5000);
+    fn test_discrete_schedule_event() {
+        let scheduler = DiscreteScheduler::new(1.0, 1000, 5000);
         let mut rng = rand::thread_rng();
 
         let event = scheduler.schedule_event(2, &mut rng);

@@ -1,6 +1,6 @@
 //! Configuration validation.
 
-use crate::streams::config::StreamMode;
+use crate::voices::config::VoiceMode;
 
 /// Validates configuration for correctness.
 pub struct ConfigValidator;
@@ -17,13 +17,13 @@ impl ConfigValidator {
         Ok(())
     }
 
-    /// Validate stream mode string.
-    pub fn validate_stream_mode(mode: &str) -> Result<StreamMode, String> {
+    /// Validate voice mode string.
+    pub fn validate_voice_mode(mode: &str) -> Result<VoiceMode, String> {
         match mode {
-            "continuous" => Ok(StreamMode::Continuous),
-            "bird" => Ok(StreamMode::Bird),
+            "continuous" => Ok(VoiceMode::Continuous),
+            "discrete" => Ok(VoiceMode::Discrete),
             _ => Err(format!(
-                "Invalid stream mode '{}'. Must be 'continuous' or 'bird'",
+                "Invalid voice mode '{}'. Must be 'continuous' or 'discrete'",
                 mode
             )),
         }
@@ -62,15 +62,15 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_stream_mode() {
+    fn test_validate_voice_mode() {
         assert_eq!(
-            ConfigValidator::validate_stream_mode("continuous").unwrap(),
-            StreamMode::Continuous
+            ConfigValidator::validate_voice_mode("continuous").unwrap(),
+            VoiceMode::Continuous
         );
         assert_eq!(
-            ConfigValidator::validate_stream_mode("bird").unwrap(),
-            StreamMode::Bird
+            ConfigValidator::validate_voice_mode("discrete").unwrap(),
+            VoiceMode::Discrete
         );
-        assert!(ConfigValidator::validate_stream_mode("invalid").is_err());
+        assert!(ConfigValidator::validate_voice_mode("invalid").is_err());
     }
 }

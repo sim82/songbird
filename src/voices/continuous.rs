@@ -1,4 +1,4 @@
-//! Continuous-mode stream scheduler.
+//! Continuous-mode voice scheduler.
 //!
 //! Handles overlapping, probabilistically-selected samples.
 
