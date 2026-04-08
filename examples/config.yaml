@@ -1,0 +1,41 @@
+# Songbird Configuration Example
+# This file demonstrates the YAML structure for ambient sound synthesis
+
+sample_rate: 44100
+sample_dir: "./samples"
+
+streams:
+  # Continuous mode example: water splattering (overlapping samples)
+  - id: water
+    mode: continuous
+    pan: -0.3
+    probability: 0.8
+    samples:
+      - water_splash_1
+      - water_splash_2
+      - water_splash_3
+    min_delay_ms: 500
+    max_delay_ms: 2000
+
+  # Bird mode example: rain drops (random, non-overlapping)
+  - id: rain
+    mode: bird
+    pan: 0.2
+    probability: 0.5
+    samples:
+      - raindrop_1
+      - raindrop_2
+      - raindrop_light
+    min_delay_ms: 100
+    max_delay_ms: 500
+
+  # Another continuous stream: ambience
+  - id: wind
+    mode: continuous
+    pan: 0.5
+    probability: 0.6
+    samples:
+      - wind_gust_1
+      - wind_gust_2
+    min_delay_ms: 1000
+    max_delay_ms: 3000
