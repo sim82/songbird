@@ -74,11 +74,19 @@ impl SynthesisEngine {
     /// Start synthesis.
     pub fn start(&mut self) {
         self.is_running = true;
+        // Activate all voices when engine starts
+        for (_, state) in &mut self.voices {
+            state.state.is_active = true;
+        }
     }
 
     /// Stop synthesis.
     pub fn stop(&mut self) {
         self.is_running = false;
+        // Deactivate all voices when engine stops
+        for (_, state) in &mut self.voices {
+            state.state.is_active = false;
+        }
     }
 
     /// Get reference to sample cache.
