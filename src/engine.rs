@@ -70,7 +70,6 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::voices::config::VoiceMode;
 
     #[test]
     fn test_engine_creation() {
@@ -83,7 +82,7 @@ mod tests {
     #[test]
     fn test_add_voice() {
         let mut engine = Engine::new(44100);
-        let config = VoiceConfig::new("test".to_string(), VoiceMode::Continuous);
+        let config = VoiceConfig::new_continuous("test".to_string(), 500);
         engine.add_voice(config);
 
         assert_eq!(engine.voices.len(), 1);

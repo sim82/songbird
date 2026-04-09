@@ -87,7 +87,6 @@ impl VoiceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::voices::config::VoiceMode;
 
     #[test]
     fn test_manager_creation() {
@@ -100,7 +99,7 @@ mod tests {
     fn test_add_voice() {
         let cache = SampleCache::new();
         let mut manager = VoiceManager::new(cache);
-        let config = VoiceConfig::new("test".to_string(), VoiceMode::Continuous);
+        let config = VoiceConfig::new_continuous("test".to_string(), 500);
         manager.add_voice(config);
         assert_eq!(manager.voice_count(), 1);
     }
@@ -109,7 +108,7 @@ mod tests {
     fn test_get_voice() {
         let cache = SampleCache::new();
         let mut manager = VoiceManager::new(cache);
-        let config = VoiceConfig::new("test".to_string(), VoiceMode::Continuous);
+        let config = VoiceConfig::new_continuous("test".to_string(), 500);
         manager.add_voice(config);
 
         let voice = manager.get_voice("test");
@@ -122,7 +121,7 @@ mod tests {
     fn test_start_stop_all() {
         let cache = SampleCache::new();
         let mut manager = VoiceManager::new(cache);
-        let config = VoiceConfig::new("test".to_string(), VoiceMode::Continuous);
+        let config = VoiceConfig::new_continuous("test".to_string(), 500);
         manager.add_voice(config);
 
         manager.start_all();

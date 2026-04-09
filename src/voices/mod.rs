@@ -10,7 +10,7 @@ pub mod discrete;
 pub mod manager;
 pub mod state;
 
-pub use config::VoiceConfig;
+pub use config::{VoiceConfig, VoiceMode};
 pub use continuous::{ContinuousScheduler, ScheduleEvent};
 pub use discrete::{DiscreteEvent, DiscreteScheduler};
 pub use manager::VoiceManager;
