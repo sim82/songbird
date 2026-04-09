@@ -4,18 +4,43 @@
 //! support for hot-reload configuration changes.
 
 use songbird::{
-    audio::{AudioFormat, AudioOutput, StubAudioDevice},
+    audio::{AudioFormat, AudioOutput, StubAudioDevice, WavWriter},
     config::{ConfigParser, ConfigWatcher},
     synthesis::SynthesisEngine,
 };
 use std::env;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+fn setup_signal_handler() {
+    let running = Arc::new(AtomicBool::new(true));
+    let running_clone = Arc::clone(&running);
+
+    ctrlc::set_handler(move || {
+        running_clone.store(false, Ordering::Relaxed);
+        SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+    })
+    .expect("Error setting Ctrl-C handler");
+}
 
 fn create_audio_device(
     format: AudioFormat,
+    output_file: Option<&str>,
     verbose: bool,
 ) -> Result<Box<dyn songbird::audio::AudioDevice>, Box<dyn std::error::Error>> {
+    // If output file is specified, use WAV writer
+    if let Some(file_path) = output_file {
+        if verbose {
+            println!("  Writing to WAV file: {}", file_path);
+        }
+        let device = WavWriter::new(file_path, format)?;
+        return Ok(Box::new(device));
+    }
+
     #[cfg(feature = "alsa")]
     {
         match songbird::audio::create_alsa_device(format) {
@@ -41,6 +66,9 @@ fn create_audio_device(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Set up signal handling for graceful shutdown
+    setup_signal_handler();
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 || args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
@@ -51,11 +79,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_file = &args[1];
     let verbose = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
 
+    // Parse output file option
+    let output_file = args
+        .windows(2)
+        .find(|w| w[0] == "-o" || w[0] == "--output")
+        .map(|w| w[1].as_str());
 
     if verbose {
         println!("🎵 Songbird Audio Synthesis Engine");
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!("Config file: {}", config_file);
+        if let Some(out) = output_file {
+            println!("Output: {}", out);
+        }
     }
 
     // Load and validate configuration
@@ -101,10 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "⚠ Warning: Failed to load sample {}: {}",
-                                    full_path, e
-                                );
+                                eprintln!("⚠ Warning: Failed to load sample {}: {}", full_path, e);
                             }
                         }
                     }
@@ -146,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if verbose {
         println!("✓ Initializing audio output");
     }
-    let device = create_audio_device(format, verbose)?;
+    let device = create_audio_device(format, output_file, verbose)?;
     let mut audio_output = AudioOutput::with_device(device);
     audio_output.allocate_buffers(config.sample_rate as usize / 10); // 100ms buffer
 
@@ -186,6 +219,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sample_buffer_right = vec![0.0; frames_per_chunk];
 
     loop {
+        // Check for shutdown signal
+        if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            if verbose {
+                println!("\n🛑 Shutdown requested, finalizing...");
+            }
+            break;
+        }
+
         // Synthesize audio
         for frame_idx in 0..frames_per_chunk {
             let (left, right) = synthesis_engine.process_frame();
@@ -221,15 +262,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // would be tuned to the buffer fill level)
         std::thread::sleep(Duration::from_millis(1));
     }
+
+    // Gracefully stop audio output
+    if verbose {
+        println!("✓ Stopping audio output...");
+    }
+    audio_output.stop()?;
+
+    if verbose {
+        println!("✓ Shutdown complete");
+    }
+
+    Ok(())
 }
 
 fn print_usage(program: &str) {
     eprintln!("Usage: {} <config.yaml> [OPTIONS]", program);
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  -v, --verbose    Show detailed output");
-    eprintln!("  -h, --help       Show this help message");
+    eprintln!("  -v, --verbose       Show detailed output");
+    eprintln!("  -o, --output FILE   Write to WAV file instead of audio device");
+    eprintln!("  -h, --help          Show this help message");
     eprintln!();
-    eprintln!("Example:");
+    eprintln!("Examples:");
     eprintln!("  {} examples/config.yaml --verbose", program);
+    eprintln!(
+        "  {} examples/sine_demo.yaml -o output.wav --verbose",
+        program
+    );
 }

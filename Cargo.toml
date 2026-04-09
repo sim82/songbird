@@ -9,6 +9,7 @@ serde_yaml = "0.9"
 rand = "0.8"
 wav = "0.4"
 notify = "6.0"
+ctrlc = "3.4"
 alsa = { version = "0.9", optional = true }
 
 [features]
