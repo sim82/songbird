@@ -5,6 +5,7 @@
 # - Stereo panning: Voices positioned left and right
 
 sample_rate: 44100
+sample_dir: samples
 
 voices:
   # Continuous voice: Ambient background with smooth transitions
@@ -12,8 +13,8 @@ voices:
     mode: continuous
     overlap_ms: 1000          # 1 second crossfade between samples
     samples:
-      - samples/sine_220hz.wav  # A3 (low frequency)
-      - samples/sine_440hz.wav  # A4 (middle frequency)
+      - sine_220hz.wav  # A3 (low frequency)
+      - sine_440hz.wav  # A4 (middle frequency)
     pan: -0.5                # Center-left
 
   # Discrete voice: Probabilistic bursts for rhythmic interest
@@ -23,7 +24,7 @@ voices:
     min_delay_ms: 500        # At least 500ms between bursts
     max_delay_ms: 2000       # At most 2 seconds between bursts
     samples:
-      - samples/sine_880hz.wav  # A5 (high frequency)
+      - sine_880hz.wav  # A5 (high frequency)
     pan: 0.5                 # Center-right
 
 # Notes:

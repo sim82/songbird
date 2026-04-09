@@ -12,16 +12,45 @@ use std::env;
 use std::path::Path;
 use std::time::Duration;
 
+fn create_audio_device(
+    format: AudioFormat,
+    verbose: bool,
+) -> Result<Box<dyn songbird::audio::AudioDevice>, Box<dyn std::error::Error>> {
+    #[cfg(feature = "alsa")]
+    {
+        match songbird::audio::create_alsa_device(format) {
+            Ok(device) => {
+                if verbose {
+                    println!("  Using ALSA audio backend");
+                }
+                return Ok(device);
+            }
+            Err(e) => {
+                if verbose {
+                    println!("  ⚠ ALSA initialization failed: {}", e);
+                    println!("  Falling back to stub device");
+                }
+            }
+        }
+    }
+
+    if verbose {
+        println!("  Using stub audio device (no actual playback)");
+    }
+    Ok(Box::new(StubAudioDevice::new(format)?))
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
+    if args.len() < 2 || args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
         print_usage(&args[0]);
         return Ok(());
     }
 
     let config_file = &args[1];
     let verbose = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
+
 
     if verbose {
         println!("🎵 Songbird Audio Synthesis Engine");
@@ -58,22 +87,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Ok(voice_config) = voice.to_voice_config() {
             // Load samples for this voice
             if let Some(samples) = &voice.samples {
-                for sample_path in samples {
+                for sample_name in samples {
+                    let full_path = format!("{}/{}", config.sample_dir, sample_name);
                     // Use unique ID (the path itself)
-                    if !synthesis_engine.sample_cache().contains(sample_path) {
+                    if !synthesis_engine.sample_cache().contains(&full_path) {
                         match synthesis_engine
                             .sample_cache_mut()
-                            .load_and_cache(sample_path.clone(), sample_path)
+                            .load_and_cache(full_path.clone(), &full_path)
                         {
                             Ok(_) => {
                                 if verbose {
-                                    println!("  ✓ Loaded: {}", sample_path);
+                                    println!("  ✓ Loaded: {}", full_path);
                                 }
                             }
                             Err(e) => {
                                 eprintln!(
                                     "⚠ Warning: Failed to load sample {}: {}",
-                                    sample_path, e
+                                    full_path, e
                                 );
                             }
                         }
@@ -81,8 +111,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
+            // Update voice config to use full paths
+            let mut updated_config = voice_config;
+            if let Some(samples) = &voice.samples {
+                updated_config.sample_pool = samples
+                    .iter()
+                    .map(|s| format!("{}/{}", config.sample_dir, s))
+                    .collect();
+            }
+
             // Add voice to engine
-            synthesis_engine.add_voice(voice_config);
+            synthesis_engine.add_voice(updated_config);
             if verbose {
                 println!(
                     "  ✓ Voice: mode={}, pan={:.2}",
@@ -102,14 +141,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("✓ Synthesis engine initialized");
     }
 
-    // Create audio output (stub for now)
+    // Create audio output with appropriate backend
     let format = AudioFormat::new(config.sample_rate);
-    let device = Box::new(StubAudioDevice::new(format)?);
+    if verbose {
+        println!("✓ Initializing audio output");
+    }
+    let device = create_audio_device(format, verbose)?;
     let mut audio_output = AudioOutput::with_device(device);
     audio_output.allocate_buffers(config.sample_rate as usize / 10); // 100ms buffer
 
     if verbose {
-        println!("✓ Audio output initialized");
         println!("  Format: {} Hz, stereo", config.sample_rate);
         println!("  Latency: {}ms (approx)", audio_output.latency_ms());
     }
