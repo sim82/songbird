@@ -6,3 +6,4 @@ pub mod output;
 
 pub use buffer::{AudioBuffer, PlaybackCursor};
 pub use mixer::StereoMixer;
+pub use output::{AudioDevice, AudioError, AudioFormat, AudioOutput, StubAudioDevice};

@@ -175,10 +175,9 @@ impl SynthesisEngine {
             if crossfade.old_sample_idx < config.sample_pool.len()
                 && let Some(old_buf) =
                     sample_cache.get(&config.sample_pool[crossfade.old_sample_idx])
-                {
-                    sample_value +=
-                        old_buf.sample_left(voice_state.state.playback_position) * old_gain;
-                }
+            {
+                sample_value += old_buf.sample_left(voice_state.state.playback_position) * old_gain;
+            }
 
             // New sample fades in
             let new_gain = progress;
