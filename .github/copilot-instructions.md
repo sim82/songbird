@@ -82,9 +82,10 @@ src/
 
 ## Voice Concepts
 
-- **Continuous Mode**: Probabilistically selects and overlaps multiple samples from a pool (e.g., water splattering)
-- **Discrete Mode**: Event-driven playback of individual, non-overlapping samples (e.g., rain drops, bird chirps)
+- **Continuous Mode**: Plays samples completely, always selecting new random samples when current finishes. Transitions use fixed-duration crossfading for smooth blending. Deterministic sample succession (no gaps).
+- **Discrete Mode**: Triggers samples probabilistically at random intervals. Non-overlapping, event-driven playback. Individual sounds separated in time.
 - **Pan**: Stereo positioning from -1.0 (full left) to 1.0 (full right), 0.0 (center)
+- **Mode-Specific Config**: VoiceMode enum contains configuration specific to each mode, preventing invalid configs
 
 ## Notes
 

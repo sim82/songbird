@@ -5,19 +5,17 @@ sample_rate: 44100
 sample_dir: "./samples"
 
 voices:
-  # Continuous mode example: water splattering (overlapping samples)
+  # Continuous mode example: water splattering (overlapping samples with crossfading)
   - id: water
     mode: continuous
     pan: -0.3
-    probability: 0.8
+    overlap_ms: 500
     samples:
       - water_splash_1
       - water_splash_2
       - water_splash_3
-    min_delay_ms: 500
-    max_delay_ms: 2000
 
-  # Discrete mode example: rain drops (random, non-overlapping)
+  # Discrete mode example: rain drops (random, non-overlapping events)
   - id: rain
     mode: discrete
     pan: 0.2
@@ -33,9 +31,7 @@ voices:
   - id: wind
     mode: continuous
     pan: 0.5
-    probability: 0.6
+    overlap_ms: 750
     samples:
       - wind_gust_1
       - wind_gust_2
-    min_delay_ms: 1000
-    max_delay_ms: 3000
