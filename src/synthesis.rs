@@ -239,41 +239,46 @@ impl SynthesisEngine {
         sample_rate: u32,
         probability: f32,
         min_delay_ms: u32,
-        _max_delay_ms: u32,
+        max_delay_ms: u32,
     ) -> (f32, f32) {
-        // Count down to next event
+        let mut sample_value = 0.0;
+
+        // If waiting for next event, count down
         if voice_state.state.next_event_countdown > 0 {
             voice_state.state.next_event_countdown -= 1;
-            return (0.0, 0.0);
+        } else {
+            // Time to trigger a new event
+            let mut rng = thread_rng();
+            // Convert ms to samples
+            let min_delay_samples = (sample_rate as f32 * min_delay_ms as f32 / 1000.0) as usize;
+            let max_delay_samples = (sample_rate as f32 * max_delay_ms as f32 / 1000.0) as usize;
+            let scheduler =
+                DiscreteScheduler::new(probability, min_delay_samples, max_delay_samples);
+
+            if let Some(event) =
+                scheduler.schedule_event(config.sample_pool.len(), &mut rng)
+            {
+                // Start playing the triggered sample
+                voice_state.state.current_sample_index = event.sample_index;
+                voice_state.state.playback_position = 0;
+                // Schedule next event trigger after this one finishes plus delay
+                voice_state.state.next_event_countdown = event.delay_samples;
+            }
         }
 
-        // Time to check if we should trigger
-        let mut rng = thread_rng();
-        let scheduler = DiscreteScheduler::new(probability, 1000, 5000);
-
-        let sample_value = if let Some(event) =
-            scheduler.schedule_event(config.sample_pool.len(), &mut rng)
-        {
-            // Get sample and play one frame
-            if event.sample_index < config.sample_pool.len() {
-                if let Some(buffer) = sample_cache.get(&config.sample_pool[event.sample_index]) {
-                    let val = buffer.sample_left(0);
-
-                    // Schedule next event
-                    let delay_samples =
-                        (sample_rate as f32 * min_delay_ms as f32 / 1000.0) as usize;
-                    voice_state.state.next_event_countdown = delay_samples;
-
-                    val
+        // If currently playing a sample, output its current frame
+        let sample_idx = voice_state.state.current_sample_index;
+        if sample_idx < config.sample_pool.len() {
+            if let Some(buffer) = sample_cache.get(&config.sample_pool[sample_idx]) {
+                if voice_state.state.playback_position < buffer.length {
+                    sample_value = buffer.sample_left(voice_state.state.playback_position);
+                    voice_state.state.playback_position += 1;
                 } else {
-                    0.0
+                    // Sample finished, stop playback
+                    voice_state.state.current_sample_index = config.sample_pool.len();
                 }
-            } else {
-                0.0
             }
-        } else {
-            0.0
-        };
+        }
 
         // Apply panning
         let mut mixer = StereoMixer::new();
