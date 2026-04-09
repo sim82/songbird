@@ -5,3 +5,4 @@ pub mod validator;
 pub mod watcher;
 
 pub use parser::ConfigParser;
+pub use watcher::{ConfigChangeEvent, ConfigWatcher};
