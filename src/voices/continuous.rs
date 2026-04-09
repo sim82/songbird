@@ -1,26 +1,39 @@
 //! Continuous-mode voice scheduler.
 //!
-//! Handles overlapping, probabilistically-selected samples.
+//! Continuous mode plays samples completely (not looped), selecting new samples randomly
+//! when the current sample finishes. Crossfading occurs over a fixed overlap period,
+//! where the new sample fades in while the old sample fades out for smooth blending.
+//!
+//! Key behavior:
+//! - Each sample plays to completion
+//! - At sample completion, scheduler decides whether to pick a new sample (based on probability)
+//! - If new sample is selected, it begins fading in while old sample fades out
+//! - Overlap period is fixed and defined in voice configuration
+//! - After overlap, the new sample fully plays until its completion
 
 use rand::Rng;
 
-/// Represents a scheduled event for sample playback.
+/// Represents a scheduled event for continuous-mode sample playback.
 #[derive(Debug, Clone)]
 pub struct ScheduleEvent {
-    /// Sample index to play (from pool).
+    /// Sample index to play next (from pool).
     pub sample_index: usize,
-    /// Delay before playback starts (in samples).
-    pub delay_samples: usize,
+    /// Overlap/crossfade duration in samples (fade new sample in, old sample out).
+    pub overlap_samples: usize,
 }
 
 /// Continuous-mode scheduler for overlapping samples.
+///
+/// Manages the transition between samples with crossfading. When a sample finishes,
+/// the scheduler probabilistically selects the next sample. The new sample and old sample
+/// overlap for a fixed crossfade period, creating smooth blended transitions.
 #[derive(Debug)]
 pub struct ContinuousScheduler {
-    /// Probability of selecting a new sample (0.0 to 1.0).
+    /// Probability of selecting a new sample when current finishes (0.0 to 1.0).
     pub probability: f32,
-    /// Minimum overlap duration (samples).
+    /// Minimum crossfade duration in samples.
     pub min_overlap: usize,
-    /// Maximum overlap duration (samples).
+    /// Maximum crossfade duration in samples.
     pub max_overlap: usize,
 }
 
@@ -34,12 +47,19 @@ impl ContinuousScheduler {
         }
     }
 
-    /// Decide whether to trigger next sample.
+    /// Decide whether to trigger next sample based on probability.
+    ///
+    /// Called when current sample finishes. Returns true if a new sample should start
+    /// (with crossfade overlap), false if playback should pause/idle.
     pub fn should_trigger(&self, rng: &mut impl Rng) -> bool {
         rng.gen_range(0.0..1.0) < self.probability
     }
 
-    /// Schedule next event with random parameters.
+    /// Schedule next sample event with random crossfade parameters.
+    ///
+    /// Returns a new event if the scheduler decides to trigger (based on probability),
+    /// None otherwise. When an event is returned, the new sample and old sample will
+    /// overlap and crossfade for the specified `overlap_samples` duration.
     pub fn schedule_event(&self, pool_size: usize, rng: &mut impl Rng) -> Option<ScheduleEvent> {
         if !self.should_trigger(rng) {
             return None;
@@ -47,7 +67,7 @@ impl ContinuousScheduler {
 
         Some(ScheduleEvent {
             sample_index: self.select_sample(pool_size, rng),
-            delay_samples: self.next_delay(rng),
+            overlap_samples: self.next_overlap(rng),
         })
     }
 
@@ -60,8 +80,11 @@ impl ContinuousScheduler {
         }
     }
 
-    /// Calculate next event delay in samples.
-    pub fn next_delay(&self, rng: &mut impl Rng) -> usize {
+    /// Calculate next crossfade duration in samples.
+    ///
+    /// Called when scheduling a new sample. Returns a random duration within the
+    /// configured min/max overlap range for sample transition.
+    pub fn next_overlap(&self, rng: &mut impl Rng) -> usize {
         rng.gen_range(self.min_overlap..=self.max_overlap)
     }
 }
@@ -95,7 +118,7 @@ mod tests {
         assert!(event.is_some());
         let ev = event.unwrap();
         assert!(ev.sample_index < 3);
-        assert!(ev.delay_samples >= scheduler.min_overlap);
-        assert!(ev.delay_samples <= scheduler.max_overlap);
+        assert!(ev.overlap_samples >= scheduler.min_overlap);
+        assert!(ev.overlap_samples <= scheduler.max_overlap);
     }
 }
