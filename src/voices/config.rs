@@ -4,11 +4,12 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceMode {
     /// Continuous overlapping samples.
-    /// Plays samples completely, selecting new samples randomly when current finishes.
-    /// New samples fade in over configurable overlap period for smooth blending.
+    /// Plays samples completely, **always** selecting new random samples when current finishes.
+    /// Transitions use fixed-duration crossfading for smooth blending.
+    /// No probability involved—deterministic sample succession.
     Continuous,
     /// Discrete (event-driven), non-overlapping samples.
-    /// Individual samples triggered probabilistically with gaps between them.
+    /// Individual samples triggered probabilistically at random intervals.
     Discrete,
 }
 
@@ -21,17 +22,17 @@ pub struct VoiceConfig {
     pub mode: VoiceMode,
     /// Pan position (-1.0 left to 1.0 right).
     pub pan: f32,
-    /// Probability of triggering new sample in continuous mode (0.0 to 1.0).
-    /// For continuous mode: probability that a new sample will be selected when current finishes.
-    /// For discrete mode: probability of triggering a new event.
+    /// Probability of triggering discrete events (0.0 to 1.0).
+    /// **Only used in Discrete mode.** Controls probabilistic event triggering.
+    /// For Continuous mode, this field is ignored (all sample transitions occur deterministically).
     pub probability: f32,
     /// Sample pool: list of sample identifiers.
     pub sample_pool: Vec<String>,
-    /// For continuous mode: overlap fade duration in milliseconds (when transitioning between samples).
-    /// For discrete mode: minimum delay between events in milliseconds.
+    /// For Continuous mode: crossfade/overlap duration in milliseconds (when transitioning between samples).
+    /// For Discrete mode: minimum delay between events in milliseconds.
     pub min_delay_ms: u32,
-    /// For continuous mode: reserved for future use (crossfade symmetric).
-    /// For discrete mode: maximum delay between events in milliseconds.
+    /// For Continuous mode: reserved for future use (symmetric crossfade).
+    /// For Discrete mode: maximum delay between events in milliseconds.
     pub max_delay_ms: u32,
 }
 
