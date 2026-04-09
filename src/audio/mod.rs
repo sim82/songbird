@@ -5,3 +5,4 @@ pub mod mixer;
 pub mod output;
 
 pub use buffer::{AudioBuffer, PlaybackCursor};
+pub use mixer::StereoMixer;

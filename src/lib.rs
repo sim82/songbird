@@ -1,13 +1,15 @@
 //! Songbird: Ambient Sound Synthesis Framework
 //!
 //! A flexible framework for synthesizing ambient sounds by mixing multiple
-//! audio streams, with probabilistic sample scheduling, stereo panning,
-//! and hot-reloadable configuration.
+//! audio voices, with deterministic continuous playback and probabilistic
+//! discrete event triggering, stereo panning, and hot-reloadable configuration.
 
 pub mod audio;
 pub mod config;
 pub mod engine;
 pub mod samples;
+pub mod synthesis;
 pub mod voices;
 
 pub use engine::Engine;
+pub use synthesis::SynthesisEngine;
