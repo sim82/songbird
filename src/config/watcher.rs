@@ -62,19 +62,23 @@ impl ConfigWatcher {
             notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
                 match res {
                     Ok(event) => {
-                        // Only report changes to the target config file
+                        // Report changes where the event path matches the config filename.
                         for path in &event.paths {
-                            if path == &config_path_clone {
-                                let evt = match event.kind {
-                                    notify::EventKind::Modify(_) => {
-                                        ConfigChangeEvent::Modified(path.clone())
-                                    }
+                            // Compare by file name so atomic editor saves (tmp file + rename)
+                            // are detected even if the event path is a temp path.
+                            if path.file_name() == config_path_clone.file_name() {
+                                match &event.kind {
                                     notify::EventKind::Create(_) => {
-                                        ConfigChangeEvent::Created(path.clone())
+                                        let _ = tx.send(ConfigChangeEvent::Created(path.clone()));
                                     }
-                                    _ => return,
-                                };
-                                let _ = tx.send(evt);
+                                    notify::EventKind::Modify(_) => {
+                                        let _ = tx.send(ConfigChangeEvent::Modified(path.clone()));
+                                    }
+                                    // Treat other kinds (Remove, Rename, Other) as modifications
+                                    _ => {
+                                        let _ = tx.send(ConfigChangeEvent::Modified(path.clone()));
+                                    }
+                                }
                             }
                         }
                     }
