@@ -256,7 +256,7 @@ impl SynthesisEngine {
             let scheduler =
                 DiscreteScheduler::new(probability, min_delay_samples, max_delay_samples);
 
-            if let Some(event) = scheduler.schedule_event(config.sample_pool.len(), &mut rng) {
+            if let Some(event) = scheduler.schedule_event(config.sample_pool.len(), &mut rng, sample_rate as usize) {
                 println!("discrete event: {event:?}");
                 // Start playing the triggered sample
                 voice_state.state.current_sample_index = event.sample_index;
