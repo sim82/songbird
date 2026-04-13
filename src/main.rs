@@ -107,7 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Config file not found".into());
     }
 
-    let config = ConfigParser::parse(config_file)?;
+    let mut config = ConfigParser::parse(config_file)?;
 
     if verbose {
         println!("✓ Configuration loaded");
@@ -259,7 +259,71 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if verbose {
                             println!("🔄 Config file changed, reloading...");
                         }
-                        // In production: pause, reload, resume with zero glitch
+
+                        // Attempt to parse the new config
+                        match ConfigParser::parse(config_file) {
+                            Ok(new_config) => {
+                                // If sample rate changed, warn and ignore (changing the audio
+                                // backend at runtime is out of scope for glitch-free reload).
+                                if new_config.sample_rate != config.sample_rate {
+                                    if verbose {
+                                        println!("⚠ Sample rate change detected in config; ignoring at runtime. Restart required to change sample rate.");
+                                    }
+                                }
+
+                                // Load any new samples into the existing sample cache first
+                                let voices_yaml = new_config.voices.clone().unwrap_or_default();
+                                let mut new_voice_configs = Vec::new();
+
+                                for voice in &voices_yaml {
+                                    match voice.to_voice_config() {
+                                        Ok(mut vc) => {
+                                            // Ensure sample paths are fully qualified
+                                            if let Some(samples) = &voice.samples {
+                                                let full_paths: Vec<String> = samples
+                                                    .iter()
+                                                    .map(|s| format!("{}/{}", new_config.sample_dir, s))
+                                                    .collect();
+
+                                                // Load into sample cache if missing
+                                                for p in &full_paths {
+                                                    if !synthesis_engine.sample_cache().contains(p) {
+                                                        if let Err(e) = synthesis_engine
+                                                            .sample_cache_mut()
+                                                            .load_and_cache(p.clone(), p)
+                                                        {
+                                                            eprintln!("⚠ Failed to load sample {}: {}", p, e);
+                                                        } else if verbose {
+                                                            println!("  ✓ Loaded new sample: {}", p);
+                                                        }
+                                                    }
+                                                }
+
+                                                vc.sample_pool = full_paths;
+                                            }
+
+                                            new_voice_configs.push(vc);
+                                        }
+                                        Err(e) => {
+                                            eprintln!("⚠ Skipping voice {} due to parse error: {}", voice.id, e);
+                                        }
+                                    }
+                                }
+
+                                // Atomically replace voices in the synthesis engine.
+                                synthesis_engine.replace_voices(new_voice_configs);
+
+                                // Update stored config (note: sample_rate change ignored above)
+                                config = new_config;
+
+                                if verbose {
+                                    println!("✓ Hot-reload applied (voices updated)");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("⚠ Failed to parse new config: {}", e);
+                            }
+                        }
                     }
                     ConfigChangeEvent::Error(e) => {
                         if verbose {

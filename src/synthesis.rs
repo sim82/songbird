@@ -99,6 +99,27 @@ impl SynthesisEngine {
         &mut self.sample_cache
     }
 
+    /// Replace all voices atomically with the provided configs.
+    /// This loads fresh VoiceSynthesisState for each voice and preserves
+    /// the running state (voices activated if the engine is running).
+    pub fn replace_voices(&mut self, configs: Vec<VoiceConfig>) {
+        self.voices.clear();
+        for cfg in configs {
+            let mut state = VoiceSynthesisState::new(cfg.id.clone());
+            if self.is_running {
+                state.state.is_active = true;
+            }
+            self.voices.push((cfg, state));
+        }
+    }
+
+    /// Update the engine sample rate at runtime. Note: changing sample rate
+    /// may require reconfiguring the audio backend; main currently ignores
+    /// runtime sample rate changes to avoid audio device reinitialization.
+    pub fn set_sample_rate(&mut self, rate: u32) {
+        self.sample_rate = rate;
+    }
+
     /// Process one audio frame, returning stereo output (left, right).
     ///
     /// For each voice:
