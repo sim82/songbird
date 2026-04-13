@@ -20,7 +20,7 @@ voices:
   # Discrete voice: Probabilistic bursts for rhythmic interest
   - id: accent_sine
     mode: discrete
-    probability: 0.15        # 15% chance per frame (~160ms at 44.1kHz)
+    probability: 0.15        # 15% chance per second (per-second probability; e.g. 0.15 = 15%/s)
     min_delay_ms: 500        # At least 500ms between bursts
     max_delay_ms: 2000       # At most 2 seconds between bursts
     samples:

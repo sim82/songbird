@@ -79,6 +79,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_file = &args[1];
     let verbose = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
 
+    // Parse sample rate override option (optional)
+    let sample_rate_override = args
+        .windows(2)
+        .find(|w| w[0] == "-r" || w[0] == "--sample-rate")
+        .and_then(|w| w[1].parse::<u32>().ok());
+
+
     // Parse output file option
     let output_file = args
         .windows(2)
@@ -104,7 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if verbose {
         println!("✓ Configuration loaded");
-        println!("  Sample rate: {} Hz", config.sample_rate);
+        let effective_sample_rate = sample_rate_override.unwrap_or(config.sample_rate);
+        println!("  Sample rate: {} Hz (effective: {} Hz)", config.sample_rate, effective_sample_rate);
         let voice_count = config.voices.as_ref().map(|v| v.len()).unwrap_or(0);
         println!("  Voices: {}", voice_count);
     }
@@ -117,7 +125,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Create synthesis engine and load samples
-    let mut synthesis_engine = SynthesisEngine::new(config.sample_rate);
+    let effective_sample_rate = sample_rate_override.unwrap_or(config.sample_rate);
+    let mut synthesis_engine = SynthesisEngine::new(effective_sample_rate);
 
     for voice in &voices_yaml {
         if let Ok(voice_config) = voice.to_voice_config() {
@@ -287,6 +296,7 @@ fn print_usage(program: &str) {
     eprintln!("  -v, --verbose       Show detailed output");
     eprintln!("  -o, --output FILE   Write to WAV file instead of audio device");
     eprintln!("  -h, --help          Show this help message");
+    eprintln!("  -r, --sample-rate N Override sample rate (Hz) for testing)");
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  {} examples/config.yaml --verbose", program);
