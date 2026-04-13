@@ -1,0 +1,37 @@
+
+sample_rate: 44100
+sample_dir: samples
+
+voices:
+  - id: ambient_sine
+    mode: continuous
+    overlap_ms: 10          
+    samples:
+      - creek01.wav 
+      - creek02.wav 
+      - creek32.wav
+    pan: -0.1                
+  - id: accent_sine
+    mode: discrete
+    probability: 0.3       
+    min_delay_ms: 500      
+    max_delay_ms: 10000    
+    samples:
+      - bird01.wav
+      - bird02.wav
+      - bird03.wav
+      - bird04.wav
+    pan: 0.1                 
+
+
+# Notes:
+# - Continuous voice creates an ambient soundscape with gentle sine waves
+# - Discrete voice adds occasional high-frequency accents
+# - Stereo panning creates separation and space
+# - Total duration: Each sine wave is 1 second, so you'll hear ~2 seconds
+#   of blended tones before cycling repeats
+#
+# Try modifying:
+# - probability: Change to 0.5 for more frequent accents
+# - overlap_ms: Change to 500 for sharper transitions
+# - pan values: Change to 0.0 for center, 1.0 for full right, -1.0 for full left
