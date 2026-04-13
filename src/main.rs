@@ -12,7 +12,7 @@ use std::env;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
@@ -227,6 +227,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sample_buffer_left = vec![0.0; frames_per_chunk];
     let mut sample_buffer_right = vec![0.0; frames_per_chunk];
 
+    // Debounce collector for hot-reload events: collect events and apply once after quiet period
+    let mut pending_reload_deadline: Option<Instant> = None;
+    let reload_debounce = Duration::from_millis(1000); // increased debounce to coalesce editor atomic-save events
+    let mut pending_events: Vec<songbird::config::ConfigChangeEvent> = Vec::new();
+    // Track last applied config file modification time to avoid reloading multiple times for the same on-disk change
+    let mut last_applied_mtime: Option<std::time::SystemTime> = None;
+
     loop {
         // Check for shutdown signal
         if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
@@ -250,12 +257,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("write error")
         }
 
-        // Check for config changes
+        // Check for config changes (debounce collector)
         if let Some(ref mut watcher) = _watcher {
-            while let Some(event) = watcher.check_changes() {
-                use songbird::config::ConfigChangeEvent;
-                match event {
-                    ConfigChangeEvent::Modified(_) => {
+            // Drain any immediately available events and extend pending_events
+            while let Some(evt) = watcher.check_changes() {
+                pending_events.push(evt);
+                pending_reload_deadline = Some(Instant::now() + reload_debounce);
+            }
+
+            // If we have a pending deadline and it's expired, process all collected events once
+            if let Some(deadline) = pending_reload_deadline {
+                if Instant::now() >= deadline && !pending_events.is_empty() {
+                    // Take collected events
+                    let events = std::mem::take(&mut pending_events);
+                    pending_reload_deadline = None;
+
+                    // If any indicates a modification/creation, apply reload once
+                    let has_modify = events.iter().any(|e| matches!(e, songbird::config::ConfigChangeEvent::Modified(_) | songbird::config::ConfigChangeEvent::Created(_)));
+                    if has_modify {
+                        // Check file modification time and only reload if it changed since last applied reload
+                        match std::fs::metadata(config_file).and_then(|m| m.modified()) {
+                            Ok(mtime) => {
+                                if let Some(last_mtime) = last_applied_mtime {
+                                    if mtime <= last_mtime {
+                                        if verbose {
+                                            println!("⚠ Reload suppressed (no new modification on disk)");
+                                        }
+                                        // skip this batch
+                                        continue;
+                                    }
+                                }
+                                // Update last_applied_mtime now — this ensures any duplicate events with the same
+                                // mtime won't trigger another reload.
+                                last_applied_mtime = Some(mtime);
+                            }
+                            Err(e) => {
+                                eprintln!("⚠ Could not stat config file before reload: {}", e);
+                                // proceed with best-effort reload
+                            }
+                        }
+
                         if verbose {
                             println!("🔄 Config file changed, reloading...");
                         }
@@ -324,13 +365,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 eprintln!("⚠ Failed to parse new config: {}", e);
                             }
                         }
-                    }
-                    ConfigChangeEvent::Error(e) => {
-                        if verbose {
-                            println!("⚠ Watcher error: {}", e);
+                    } else {
+                        // Report any watcher errors
+                        for evt in events {
+                            if let songbird::config::ConfigChangeEvent::Error(err) = evt {
+                                if verbose {
+                                    println!("⚠ Watcher error: {}", err);
+                                }
+                            }
                         }
                     }
-                    _ => {}
                 }
             }
         }

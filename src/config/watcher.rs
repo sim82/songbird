@@ -67,6 +67,7 @@ impl ConfigWatcher {
                             // Compare by file name so atomic editor saves (tmp file + rename)
                             // are detected even if the event path is a temp path.
                             if path.file_name() == config_path_clone.file_name() {
+                                // println!("event: {event:?}");
                                 match &event.kind {
                                     notify::EventKind::Create(_) => {
                                         let _ = tx.send(ConfigChangeEvent::Created(path.clone()));
