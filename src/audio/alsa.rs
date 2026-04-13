@@ -118,7 +118,13 @@ mod alsa_impl {
                 .with_pcm(|pcm| {
                     // Start PCM in non-blocking mode
                     pcm.start()
-                        .map_err(|e| format!("Failed to start PCM: {}", e))
+                        .map_err(|e| format!("Failed to start PCM: {}", e))?;
+                    // initially fill buffer to prevent instnat underrun
+                    let io = pcm
+                        .io_i16()
+                        .map_err(|e| format!("Failed to get IO: {}", e))?;
+                    let data = [0i16; 4096];
+                    io.writei(&data).map_err(|e| format!("Write failed: {}", e))
                 })
                 .map_err(AudioError::DeviceInitError)?;
             Ok(())

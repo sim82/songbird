@@ -235,7 +235,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Write to output
-        let _written = audio_output.write(&sample_buffer_left, &sample_buffer_right)?;
+        let res = audio_output.write(&sample_buffer_left, &sample_buffer_right);
+
+        if res.is_err() {
+            println!("write error")
+        }
 
         // Check for config changes
         if let Some(ref mut watcher) = _watcher {

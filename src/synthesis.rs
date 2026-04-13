@@ -213,6 +213,7 @@ impl SynthesisEngine {
             let mut rng = thread_rng();
             let scheduler = ContinuousScheduler::new(500, 5000);
             let next_event = scheduler.schedule_event(config.sample_pool.len(), &mut rng);
+            println!("next event: {next_event:?}");
 
             // Start crossfade
             let overlap_samples = (sample_rate as f32 * overlap_ms as f32 / 1000.0) as usize;
@@ -255,9 +256,8 @@ impl SynthesisEngine {
             let scheduler =
                 DiscreteScheduler::new(probability, min_delay_samples, max_delay_samples);
 
-            if let Some(event) =
-                scheduler.schedule_event(config.sample_pool.len(), &mut rng)
-            {
+            if let Some(event) = scheduler.schedule_event(config.sample_pool.len(), &mut rng) {
+                println!("discrete event: {event:?}");
                 // Start playing the triggered sample
                 voice_state.state.current_sample_index = event.sample_index;
                 voice_state.state.playback_position = 0;
