@@ -85,7 +85,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find(|w| w[0] == "-r" || w[0] == "--sample-rate")
         .and_then(|w| w[1].parse::<u32>().ok());
 
-
     // Parse output file option
     let output_file = args
         .windows(2)
@@ -112,7 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if verbose {
         println!("✓ Configuration loaded");
         let effective_sample_rate = sample_rate_override.unwrap_or(config.sample_rate);
-        println!("  Sample rate: {} Hz (effective: {} Hz)", config.sample_rate, effective_sample_rate);
+        println!(
+            "  Sample rate: {} Hz (effective: {} Hz)",
+            config.sample_rate, effective_sample_rate
+        );
         let voice_count = config.voices.as_ref().map(|v| v.len()).unwrap_or(0);
         println!("  Voices: {}", voice_count);
     }
@@ -229,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Debounce collector for hot-reload events: collect events and apply once after quiet period
     let mut pending_reload_deadline: Option<Instant> = None;
-    let reload_debounce = Duration::from_millis(1000); // increased debounce to coalesce editor atomic-save events
+    let reload_debounce = Duration::from_millis(250); // increased debounce to coalesce editor atomic-save events
     let mut pending_events: Vec<songbird::config::ConfigChangeEvent> = Vec::new();
     // Track last applied config file modification time to avoid reloading multiple times for the same on-disk change
     let mut last_applied_mtime: Option<std::time::SystemTime> = None;
@@ -266,113 +268,126 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // If we have a pending deadline and it's expired, process all collected events once
-            if let Some(deadline) = pending_reload_deadline {
-                if Instant::now() >= deadline && !pending_events.is_empty() {
-                    // Take collected events
-                    let events = std::mem::take(&mut pending_events);
-                    pending_reload_deadline = None;
+            if let Some(deadline) = pending_reload_deadline
+                && Instant::now() >= deadline
+                && !pending_events.is_empty()
+            {
+                // Take collected events
+                let events = std::mem::take(&mut pending_events);
+                pending_reload_deadline = None;
 
-                    // If any indicates a modification/creation, apply reload once
-                    let has_modify = events.iter().any(|e| matches!(e, songbird::config::ConfigChangeEvent::Modified(_) | songbird::config::ConfigChangeEvent::Created(_)));
-                    if has_modify {
-                        // Check file modification time and only reload if it changed since last applied reload
-                        match std::fs::metadata(config_file).and_then(|m| m.modified()) {
-                            Ok(mtime) => {
-                                if let Some(last_mtime) = last_applied_mtime {
-                                    if mtime <= last_mtime {
-                                        if verbose {
-                                            println!("⚠ Reload suppressed (no new modification on disk)");
-                                        }
-                                        // skip this batch
-                                        continue;
-                                    }
+                // If any indicates a modification/creation, apply reload once
+                let has_modify = events.iter().any(|e| {
+                    matches!(
+                        e,
+                        songbird::config::ConfigChangeEvent::Modified(_)
+                            | songbird::config::ConfigChangeEvent::Created(_)
+                    )
+                });
+                if has_modify {
+                    // Check file modification time and only reload if it changed since last applied reload
+                    match std::fs::metadata(config_file).and_then(|m| m.modified()) {
+                        Ok(mtime) => {
+                            if let Some(last_mtime) = last_applied_mtime
+                                && mtime <= last_mtime
+                            {
+                                if verbose {
+                                    println!("⚠ Reload suppressed (no new modification on disk)");
                                 }
-                                // Update last_applied_mtime now — this ensures any duplicate events with the same
-                                // mtime won't trigger another reload.
-                                last_applied_mtime = Some(mtime);
+                                // skip this batch
+                                continue;
                             }
-                            Err(e) => {
-                                eprintln!("⚠ Could not stat config file before reload: {}", e);
-                                // proceed with best-effort reload
+                            // Update last_applied_mtime now — this ensures any duplicate events with the same
+                            // mtime won't trigger another reload.
+                            last_applied_mtime = Some(mtime);
+                        }
+                        Err(e) => {
+                            eprintln!("⚠ Could not stat config file before reload: {}", e);
+                            // proceed with best-effort reload
+                        }
+                    }
+
+                    if verbose {
+                        println!("🔄 Config file changed, reloading...");
+                    }
+
+                    // Attempt to parse the new config
+                    match ConfigParser::parse(config_file) {
+                        Ok(new_config) => {
+                            // If sample rate changed, warn and ignore (changing the audio
+                            // backend at runtime is out of scope for glitch-free reload).
+                            if new_config.sample_rate != config.sample_rate && verbose {
+                                println!(
+                                    "⚠ Sample rate change detected in config; ignoring at runtime. Restart required to change sample rate."
+                                );
                             }
-                        }
 
-                        if verbose {
-                            println!("🔄 Config file changed, reloading...");
-                        }
+                            // Load any new samples into the existing sample cache first
+                            let voices_yaml = new_config.voices.clone().unwrap_or_default();
+                            let mut new_voice_configs = Vec::new();
 
-                        // Attempt to parse the new config
-                        match ConfigParser::parse(config_file) {
-                            Ok(new_config) => {
-                                // If sample rate changed, warn and ignore (changing the audio
-                                // backend at runtime is out of scope for glitch-free reload).
-                                if new_config.sample_rate != config.sample_rate {
-                                    if verbose {
-                                        println!("⚠ Sample rate change detected in config; ignoring at runtime. Restart required to change sample rate.");
-                                    }
-                                }
+                            for voice in &voices_yaml {
+                                match voice.to_voice_config() {
+                                    Ok(mut vc) => {
+                                        // Ensure sample paths are fully qualified
+                                        if let Some(samples) = &voice.samples {
+                                            let full_paths: Vec<String> = samples
+                                                .iter()
+                                                .map(|s| format!("{}/{}", new_config.sample_dir, s))
+                                                .collect();
 
-                                // Load any new samples into the existing sample cache first
-                                let voices_yaml = new_config.voices.clone().unwrap_or_default();
-                                let mut new_voice_configs = Vec::new();
-
-                                for voice in &voices_yaml {
-                                    match voice.to_voice_config() {
-                                        Ok(mut vc) => {
-                                            // Ensure sample paths are fully qualified
-                                            if let Some(samples) = &voice.samples {
-                                                let full_paths: Vec<String> = samples
-                                                    .iter()
-                                                    .map(|s| format!("{}/{}", new_config.sample_dir, s))
-                                                    .collect();
-
-                                                // Load into sample cache if missing
-                                                for p in &full_paths {
-                                                    if !synthesis_engine.sample_cache().contains(p) {
-                                                        if let Err(e) = synthesis_engine
-                                                            .sample_cache_mut()
-                                                            .load_and_cache(p.clone(), p)
-                                                        {
-                                                            eprintln!("⚠ Failed to load sample {}: {}", p, e);
-                                                        } else if verbose {
-                                                            println!("  ✓ Loaded new sample: {}", p);
-                                                        }
+                                            // Load into sample cache if missing
+                                            for p in &full_paths {
+                                                if !synthesis_engine.sample_cache().contains(p) {
+                                                    if let Err(e) = synthesis_engine
+                                                        .sample_cache_mut()
+                                                        .load_and_cache(p.clone(), p)
+                                                    {
+                                                        eprintln!(
+                                                            "⚠ Failed to load sample {}: {}",
+                                                            p, e
+                                                        );
+                                                    } else if verbose {
+                                                        println!("  ✓ Loaded new sample: {}", p);
                                                     }
                                                 }
-
-                                                vc.sample_pool = full_paths;
                                             }
 
-                                            new_voice_configs.push(vc);
+                                            vc.sample_pool = full_paths;
                                         }
-                                        Err(e) => {
-                                            eprintln!("⚠ Skipping voice {} due to parse error: {}", voice.id, e);
-                                        }
+
+                                        new_voice_configs.push(vc);
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "⚠ Skipping voice {} due to parse error: {}",
+                                            voice.id, e
+                                        );
                                     }
                                 }
-
-                                // Atomically replace voices in the synthesis engine.
-                                synthesis_engine.replace_voices(new_voice_configs);
-
-                                // Update stored config (note: sample_rate change ignored above)
-                                config = new_config;
-
-                                if verbose {
-                                    println!("✓ Hot-reload applied (voices updated)");
-                                }
                             }
-                            Err(e) => {
-                                eprintln!("⚠ Failed to parse new config: {}", e);
+
+                            // Atomically replace voices in the synthesis engine.
+                            synthesis_engine.replace_voices(new_voice_configs);
+
+                            // Update stored config (note: sample_rate change ignored above)
+                            config = new_config;
+
+                            if verbose {
+                                println!("✓ Hot-reload applied (voices updated)");
                             }
                         }
-                    } else {
-                        // Report any watcher errors
-                        for evt in events {
-                            if let songbird::config::ConfigChangeEvent::Error(err) = evt {
-                                if verbose {
-                                    println!("⚠ Watcher error: {}", err);
-                                }
-                            }
+                        Err(e) => {
+                            eprintln!("⚠ Failed to parse new config: {}", e);
+                        }
+                    }
+                } else {
+                    // Report any watcher errors
+                    for evt in events {
+                        if let songbird::config::ConfigChangeEvent::Error(err) = evt
+                            && verbose
+                        {
+                            println!("⚠ Watcher error: {}", err);
                         }
                     }
                 }

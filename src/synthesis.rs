@@ -289,8 +289,8 @@ impl SynthesisEngine {
 
         // If currently playing a sample, output its current frame
         let sample_idx = voice_state.state.current_sample_index;
-        if sample_idx < config.sample_pool.len() {
-            if let Some(buffer) = sample_cache.get(&config.sample_pool[sample_idx]) {
+        if sample_idx < config.sample_pool.len()
+            && let Some(buffer) = sample_cache.get(&config.sample_pool[sample_idx]) {
                 if voice_state.state.playback_position < buffer.length {
                     sample_value = buffer.sample_left(voice_state.state.playback_position);
                     voice_state.state.playback_position += 1;
@@ -299,7 +299,6 @@ impl SynthesisEngine {
                     voice_state.state.current_sample_index = config.sample_pool.len();
                 }
             }
-        }
 
         // Apply panning
         let mut mixer = StereoMixer::new();
