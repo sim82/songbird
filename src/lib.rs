@@ -6,10 +6,8 @@
 
 pub mod audio;
 pub mod config;
-pub mod engine;
 pub mod samples;
 pub mod synthesis;
 pub mod voices;
 
-pub use engine::Engine;
 pub use synthesis::SynthesisEngine;

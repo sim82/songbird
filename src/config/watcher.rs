@@ -6,7 +6,7 @@
 use notify::{RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Events emitted by the config watcher.
 #[derive(Debug, Clone)]
@@ -27,6 +27,9 @@ pub struct ConfigWatcher {
     config_path: PathBuf,
     rx: mpsc::Receiver<ConfigChangeEvent>,
     _watcher: Box<dyn Watcher>,
+    // internal debounce collector state
+    pending_events: Vec<ConfigChangeEvent>,
+    debounce_deadline: Option<Instant>,
 }
 
 impl ConfigWatcher {
@@ -98,6 +101,8 @@ impl ConfigWatcher {
             config_path,
             rx,
             _watcher: Box::new(watcher),
+            pending_events: Vec::new(),
+            debounce_deadline: None,
         })
     }
 
@@ -123,6 +128,50 @@ impl ConfigWatcher {
     /// Returns `Some(event)` if change detected, `None` on timeout.
     pub fn wait_for_change(&self, duration: Duration) -> Option<ConfigChangeEvent> {
         self.rx.recv_timeout(duration).ok()
+    }
+
+    /// Polls the watcher, collecting events into an internal debounce buffer and
+    /// returning a single debounced event when the quiet period has elapsed.
+    ///
+    /// - `debounce` is the quiet period to wait after the last observed event.
+    /// - Call this regularly from the main loop; it's non-blocking.
+    pub fn check_debounced_change(&mut self, debounce: Duration) -> Option<ConfigChangeEvent> {
+        // Drain any immediately available events into the pending buffer and
+        // extend the debounce deadline.
+        while let Ok(evt) = self.rx.try_recv() {
+            self.pending_events.push(evt);
+            self.debounce_deadline = Some(Instant::now() + debounce);
+        }
+
+        // If a deadline is set and has expired, emit a single coalesced event
+        if let Some(deadline) = self.debounce_deadline {
+            if Instant::now() >= deadline {
+                let events = std::mem::take(&mut self.pending_events);
+                self.debounce_deadline = None;
+
+                // Prefer to surface modification/creation events; otherwise report the first error
+                let has_modify = events.iter().any(|e| matches!(e, ConfigChangeEvent::Modified(_) | ConfigChangeEvent::Created(_)));
+                if has_modify {
+                    // Return the first modification/creation event we saw
+                    for e in &events {
+                        match e {
+                            ConfigChangeEvent::Modified(p) => return Some(ConfigChangeEvent::Modified(p.clone())),
+                            ConfigChangeEvent::Created(p) => return Some(ConfigChangeEvent::Created(p.clone())),
+                            _ => continue,
+                        }
+                    }
+                }
+
+                // If no modify/create, return the first error if any
+                for e in &events {
+                    if let ConfigChangeEvent::Error(err) = e {
+                        return Some(ConfigChangeEvent::Error(err.clone()));
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Get the watched config file path.

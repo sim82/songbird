@@ -12,7 +12,7 @@ use std::env;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
@@ -63,6 +63,43 @@ fn create_audio_device(
         println!("  Using stub audio device (no actual playback)");
     }
     Ok(Box::new(StubAudioDevice::new(format)?))
+}
+
+fn build_and_preload_voices(synthesis_engine: &mut SynthesisEngine, config: &songbird::config::parser::Config, voices_yaml: &[songbird::config::parser::VoiceConfigYaml], verbose: bool) -> Vec<songbird::voices::VoiceConfig> {
+    let mut new_voice_configs = Vec::new();
+
+    for voice in voices_yaml {
+        match voice.to_voice_config() {
+            Ok(mut vc) => {
+                // Ensure sample paths are fully qualified and preload missing samples
+                if let Some(samples) = &voice.samples {
+                    let full_paths: Vec<String> = samples
+                        .iter()
+                        .map(|s| format!("{}/{}", config.sample_dir, s))
+                        .collect();
+
+                    for p in &full_paths {
+                        if !synthesis_engine.sample_cache().contains(p) {
+                            if let Err(e) = synthesis_engine.sample_cache_mut().load_and_cache(p.clone(), p.clone()) {
+                                eprintln!("⚠ Warning: Failed to load sample {}: {}", p, e);
+                            } else if verbose {
+                                println!("  ✓ Loaded: {}", p);
+                            }
+                        }
+                    }
+
+                    vc.sample_pool = full_paths;
+                }
+
+                new_voice_configs.push(vc);
+            }
+            Err(e) => {
+                eprintln!("⚠ Warning: Failed to convert voice config for {}: {}", voice.id, e);
+            }
+        }
+    }
+
+    new_voice_configs
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -120,64 +157,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Convert YAML voices to VoiceConfig and load samples
-    let voices_yaml = config.voices.unwrap_or_default();
+    let voices_yaml = config.voices.clone().unwrap_or_default();
 
     if verbose {
         println!("✓ Loading samples...");
     }
 
-    // Create synthesis engine and load samples
+    // Create synthesis engine
     let effective_sample_rate = sample_rate_override.unwrap_or(config.sample_rate);
     let mut synthesis_engine = SynthesisEngine::new(effective_sample_rate);
 
+    // Build voice configs and preload samples using shared helper
+    let new_voice_configs = build_and_preload_voices(&mut synthesis_engine, &config, &voices_yaml, verbose);
+
+    // Atomically populate engine voices for startup
+    synthesis_engine.replace_voices(new_voice_configs);
+
+    // Verbose listing of voices
     for voice in &voices_yaml {
-        if let Ok(voice_config) = voice.to_voice_config() {
-            // Load samples for this voice
-            if let Some(samples) = &voice.samples {
-                for sample_name in samples {
-                    let full_path = format!("{}/{}", config.sample_dir, sample_name);
-                    // Use unique ID (the path itself)
-                    if !synthesis_engine.sample_cache().contains(&full_path) {
-                        match synthesis_engine
-                            .sample_cache_mut()
-                            .load_and_cache(full_path.clone(), &full_path)
-                        {
-                            Ok(_) => {
-                                if verbose {
-                                    println!("  ✓ Loaded: {}", full_path);
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("⚠ Warning: Failed to load sample {}: {}", full_path, e);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Update voice config to use full paths
-            let mut updated_config = voice_config;
-            if let Some(samples) = &voice.samples {
-                updated_config.sample_pool = samples
-                    .iter()
-                    .map(|s| format!("{}/{}", config.sample_dir, s))
-                    .collect();
-            }
-
-            // Add voice to engine
-            synthesis_engine.add_voice(updated_config);
+        if let Ok(_) = voice.to_voice_config() {
             if verbose {
-                println!(
-                    "  ✓ Voice: mode={}, pan={:.2}",
-                    &voice.mode,
-                    voice.pan.unwrap_or(0.0)
-                );
+                println!("  ✓ Voice: mode={}, pan={:.2}", &voice.mode, voice.pan.unwrap_or(0.0));
             }
         } else if verbose {
-            eprintln!(
-                "⚠ Warning: Failed to convert voice config for {}",
-                &voice.id
-            );
+            eprintln!("⚠ Warning: Failed to convert voice config for {}", &voice.id);
         }
     }
 
@@ -229,10 +232,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sample_buffer_left = vec![0.0; frames_per_chunk];
     let mut sample_buffer_right = vec![0.0; frames_per_chunk];
 
-    // Debounce collector for hot-reload events: collect events and apply once after quiet period
-    let mut pending_reload_deadline: Option<Instant> = None;
-    let reload_debounce = Duration::from_millis(250); // increased debounce to coalesce editor atomic-save events
-    let mut pending_events: Vec<songbird::config::ConfigChangeEvent> = Vec::new();
+    // Hot-reload debounce handled by ConfigWatcher; set desired debounce here
+    let reload_debounce = Duration::from_millis(250); // tunable debounce duration (250ms)
     // Track last applied config file modification time to avoid reloading multiple times for the same on-disk change
     let mut last_applied_mtime: Option<std::time::SystemTime> = None;
 
@@ -259,134 +260,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("write error")
         }
 
-        // Check for config changes (debounce collector)
+        // Check for config changes using debounced watcher API
         if let Some(ref mut watcher) = _watcher {
-            // Drain any immediately available events and extend pending_events
-            while let Some(evt) = watcher.check_changes() {
-                pending_events.push(evt);
-                pending_reload_deadline = Some(Instant::now() + reload_debounce);
-            }
+            if let Some(evt) = watcher.check_debounced_change(reload_debounce) {
+                match evt {
+                    songbird::config::ConfigChangeEvent::Modified(_) | songbird::config::ConfigChangeEvent::Created(_) => {
+                        // Check file modification time and only reload if it changed since last applied reload
+                        match std::fs::metadata(config_file).and_then(|m| m.modified()) {
+                            Ok(mtime) => {
+                                if let Some(last_mtime) = last_applied_mtime && mtime <= last_mtime {
+                                    if verbose {
+                                        println!("⚠ Reload suppressed (no new modification on disk)");
+                                    }
+                                } else {
+                                    last_applied_mtime = Some(mtime);
 
-            // If we have a pending deadline and it's expired, process all collected events once
-            if let Some(deadline) = pending_reload_deadline
-                && Instant::now() >= deadline
-                && !pending_events.is_empty()
-            {
-                // Take collected events
-                let events = std::mem::take(&mut pending_events);
-                pending_reload_deadline = None;
+                                    if verbose {
+                                        println!("🔄 Config file changed, reloading...");
+                                    }
 
-                // If any indicates a modification/creation, apply reload once
-                let has_modify = events.iter().any(|e| {
-                    matches!(
-                        e,
-                        songbird::config::ConfigChangeEvent::Modified(_)
-                            | songbird::config::ConfigChangeEvent::Created(_)
-                    )
-                });
-                if has_modify {
-                    // Check file modification time and only reload if it changed since last applied reload
-                    match std::fs::metadata(config_file).and_then(|m| m.modified()) {
-                        Ok(mtime) => {
-                            if let Some(last_mtime) = last_applied_mtime
-                                && mtime <= last_mtime
-                            {
-                                if verbose {
-                                    println!("⚠ Reload suppressed (no new modification on disk)");
-                                }
-                                // skip this batch
-                                continue;
-                            }
-                            // Update last_applied_mtime now — this ensures any duplicate events with the same
-                            // mtime won't trigger another reload.
-                            last_applied_mtime = Some(mtime);
-                        }
-                        Err(e) => {
-                            eprintln!("⚠ Could not stat config file before reload: {}", e);
-                            // proceed with best-effort reload
-                        }
-                    }
-
-                    if verbose {
-                        println!("🔄 Config file changed, reloading...");
-                    }
-
-                    // Attempt to parse the new config
-                    match ConfigParser::parse(config_file) {
-                        Ok(new_config) => {
-                            // If sample rate changed, warn and ignore (changing the audio
-                            // backend at runtime is out of scope for glitch-free reload).
-                            if new_config.sample_rate != config.sample_rate && verbose {
-                                println!(
-                                    "⚠ Sample rate change detected in config; ignoring at runtime. Restart required to change sample rate."
-                                );
-                            }
-
-                            // Load any new samples into the existing sample cache first
-                            let voices_yaml = new_config.voices.clone().unwrap_or_default();
-                            let mut new_voice_configs = Vec::new();
-
-                            for voice in &voices_yaml {
-                                match voice.to_voice_config() {
-                                    Ok(mut vc) => {
-                                        // Ensure sample paths are fully qualified
-                                        if let Some(samples) = &voice.samples {
-                                            let full_paths: Vec<String> = samples
-                                                .iter()
-                                                .map(|s| format!("{}/{}", new_config.sample_dir, s))
-                                                .collect();
-
-                                            // Load into sample cache if missing
-                                            for p in &full_paths {
-                                                if !synthesis_engine.sample_cache().contains(p) {
-                                                    if let Err(e) = synthesis_engine
-                                                        .sample_cache_mut()
-                                                        .load_and_cache(p.clone(), p)
-                                                    {
-                                                        eprintln!(
-                                                            "⚠ Failed to load sample {}: {}",
-                                                            p, e
-                                                        );
-                                                    } else if verbose {
-                                                        println!("  ✓ Loaded new sample: {}", p);
-                                                    }
-                                                }
+                                    // Attempt to parse the new config
+                                    match ConfigParser::parse(config_file) {
+                                        Ok(new_config) => {
+                                            // If sample rate changed, warn and ignore
+                                            if new_config.sample_rate != config.sample_rate && verbose {
+                                                println!("⚠ Sample rate change detected in config; ignoring at runtime. Restart required to change sample rate.");
                                             }
 
-                                            vc.sample_pool = full_paths;
-                                        }
+                                            // Use shared helper to build voice configs and preload samples
+                                            let voices_yaml = new_config.voices.clone().unwrap_or_default();
+                                            let new_voice_configs = build_and_preload_voices(&mut synthesis_engine, &new_config, &voices_yaml, verbose);
 
-                                        new_voice_configs.push(vc);
-                                    }
-                                    Err(e) => {
-                                        eprintln!(
-                                            "⚠ Skipping voice {} due to parse error: {}",
-                                            voice.id, e
-                                        );
+                                            // Atomically replace voices in the synthesis engine.
+                                            synthesis_engine.replace_voices(new_voice_configs);
+
+                                            // Update stored config
+                                            config = new_config;
+
+                                            if verbose {
+                                                println!("✓ Hot-reload applied (voices updated)");
+                                            }
+                                        }
+                                        Err(e) => {
+                                            eprintln!("⚠ Failed to parse new config: {}", e);
+                                        }
                                     }
                                 }
                             }
-
-                            // Atomically replace voices in the synthesis engine.
-                            synthesis_engine.replace_voices(new_voice_configs);
-
-                            // Update stored config (note: sample_rate change ignored above)
-                            config = new_config;
-
-                            if verbose {
-                                println!("✓ Hot-reload applied (voices updated)");
+                            Err(e) => {
+                                eprintln!("⚠ Could not stat config file before reload: {}", e);
+                                // proceed with best-effort reload
                             }
                         }
-                        Err(e) => {
-                            eprintln!("⚠ Failed to parse new config: {}", e);
-                        }
                     }
-                } else {
-                    // Report any watcher errors
-                    for evt in events {
-                        if let songbird::config::ConfigChangeEvent::Error(err) = evt
-                            && verbose
-                        {
+                    songbird::config::ConfigChangeEvent::Error(err) => {
+                        if verbose {
                             println!("⚠ Watcher error: {}", err);
                         }
                     }
