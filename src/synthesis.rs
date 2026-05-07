@@ -24,21 +24,71 @@ struct CrossfadeState {
     overlap_position: usize,
 }
 
+/// Continuous-mode synthesis state: scheduler + crossfade.
+#[derive(Debug)]
+struct ContinuousSynthesisState {
+    pub scheduler: ContinuousScheduler,
+    pub crossfade: Option<CrossfadeState>,
+}
+
+/// Discrete-mode synthesis state: scheduler only.
+#[derive(Debug)]
+struct DiscreteSynthesisState {
+    pub scheduler: DiscreteScheduler,
+}
+
+/// Mode-specific synthesis state (scheduler + mode-specific playback state).
+#[derive(Debug)]
+enum VoiceSynthesisMode {
+    Continuous(ContinuousSynthesisState),
+    Discrete(DiscreteSynthesisState),
+}
+
 /// Synthesis state per voice, augmenting VoiceState with mode-specific data.
 #[derive(Debug)]
 struct VoiceSynthesisState {
     /// Base playback state.
     pub state: VoiceState,
-    /// For continuous mode: crossfade state if transitioning between samples.
-    pub crossfade: Option<CrossfadeState>,
+    /// Mode-specific state (scheduler + mode-dependent fields).
+    pub mode_state: VoiceSynthesisMode,
 }
 
 impl VoiceSynthesisState {
-    fn new(id: String) -> Self {
-        Self {
-            state: VoiceState::new(id),
-            crossfade: None,
-        }
+    fn new(id: String, config: &VoiceConfig, sample_rate: u32) -> Self {
+        let state = VoiceState::new(id);
+
+        let mode_state = match &config.mode {
+            VoiceMode::Continuous { overlap_ms } => {
+                // Derive min/max overlap from overlap_ms (±20% variance).
+                // This allows natural variation in crossfade durations.
+                let min_overlap = (*overlap_ms as f32 * 0.8) as usize;
+                let max_overlap = (*overlap_ms as f32 * 1.2) as usize;
+                VoiceSynthesisMode::Continuous(ContinuousSynthesisState {
+                    scheduler: ContinuousScheduler::new(min_overlap, max_overlap),
+                    crossfade: None,
+                })
+            }
+            VoiceMode::Discrete {
+                probability,
+                min_delay_ms,
+                max_delay_ms,
+            } => {
+                // Convert delay from ms to samples
+                let min_delay_samples =
+                    (sample_rate as f32 * *min_delay_ms as f32 / 1000.0) as usize;
+                let max_delay_samples =
+                    (sample_rate as f32 * *max_delay_ms as f32 / 1000.0) as usize;
+                VoiceSynthesisMode::Discrete(DiscreteSynthesisState {
+                    scheduler: DiscreteScheduler::new(
+                        *probability,
+                        min_delay_samples,
+                        max_delay_samples,
+                    ),
+                })
+            }
+        };
+
+        Self { state, mode_state }
     }
 }
 
@@ -67,7 +117,8 @@ impl SynthesisEngine {
 
     /// Add a voice to the engine.
     pub fn add_voice(&mut self, config: VoiceConfig) {
-        let synthesis_state = VoiceSynthesisState::new(config.id.clone());
+        let synthesis_state =
+            VoiceSynthesisState::new(config.id.clone(), &config, self.sample_rate);
         self.voices.push((config, synthesis_state));
     }
 
@@ -105,7 +156,7 @@ impl SynthesisEngine {
     pub fn replace_voices(&mut self, configs: Vec<VoiceConfig>) {
         self.voices.clear();
         for cfg in configs {
-            let mut state = VoiceSynthesisState::new(cfg.id.clone());
+            let mut state = VoiceSynthesisState::new(cfg.id.clone(), &cfg, self.sample_rate);
             if self.is_running {
                 state.state.is_active = true;
             }
@@ -144,26 +195,20 @@ impl SynthesisEngine {
             let sample_cache = &self.sample_cache.clone();
             let sample_rate = self.sample_rate;
 
-            let stereo_sample = match &config.mode {
-                VoiceMode::Continuous { overlap_ms } => Self::process_continuous_voice(
+            let stereo_sample = match &mut voice_state.mode_state {
+                VoiceSynthesisMode::Continuous(cont_state) => Self::process_continuous_voice(
                     config,
-                    voice_state,
+                    &mut voice_state.state,
+                    cont_state,
                     sample_cache,
                     sample_rate,
-                    *overlap_ms,
                 ),
-                VoiceMode::Discrete {
-                    probability,
-                    min_delay_ms,
-                    max_delay_ms,
-                } => Self::process_discrete_voice(
+                VoiceSynthesisMode::Discrete(disc_state) => Self::process_discrete_voice(
                     config,
-                    voice_state,
+                    &mut voice_state.state,
+                    disc_state,
                     sample_cache,
                     sample_rate,
-                    *probability,
-                    *min_delay_ms,
-                    *max_delay_ms,
                 ),
             };
 
@@ -177,12 +222,12 @@ impl SynthesisEngine {
     /// Process a continuous-mode voice for one frame.
     fn process_continuous_voice(
         config: &VoiceConfig,
-        voice_state: &mut VoiceSynthesisState,
+        voice_state: &mut VoiceState,
+        cont_state: &mut ContinuousSynthesisState,
         sample_cache: &SampleCache,
         sample_rate: u32,
-        overlap_ms: u32,
     ) -> (f32, f32) {
-        let sample_idx = voice_state.state.current_sample_index;
+        let sample_idx = voice_state.current_sample_index;
         if sample_idx >= config.sample_pool.len() {
             return (0.0, 0.0);
         }
@@ -196,7 +241,7 @@ impl SynthesisEngine {
         let mut sample_value = 0.0;
 
         // If we're in a crossfade transition, blend both samples
-        if let Some(ref mut crossfade) = voice_state.crossfade {
+        if let Some(ref mut crossfade) = cont_state.crossfade {
             let progress = crossfade.overlap_position as f32 / crossfade.overlap_duration as f32;
 
             // Old sample fades out
@@ -205,46 +250,51 @@ impl SynthesisEngine {
                 && let Some(old_buf) =
                     sample_cache.get(&config.sample_pool[crossfade.old_sample_idx])
             {
-                sample_value += old_buf.sample_left(voice_state.state.playback_position) * old_gain;
+                sample_value += old_buf.sample_left(voice_state.playback_position) * old_gain;
             }
 
             // New sample fades in
             let new_gain = progress;
             if let Some(new_buf) = sample_cache.get(&config.sample_pool[crossfade.new_sample_idx]) {
-                sample_value += new_buf.sample_left(voice_state.state.playback_position) * new_gain;
+                sample_value += new_buf.sample_left(voice_state.playback_position) * new_gain;
             }
 
             crossfade.overlap_position += 1;
             if crossfade.overlap_position >= crossfade.overlap_duration {
                 // Crossfade complete, switch to new sample
-                voice_state.state.current_sample_index = crossfade.new_sample_idx;
-                voice_state.crossfade = None;
+                voice_state.current_sample_index = crossfade.new_sample_idx;
+                cont_state.crossfade = None;
             }
         } else {
             // Normal playback (not in crossfade)
-            sample_value = buffer.sample_left(voice_state.state.playback_position);
+            sample_value = buffer.sample_left(voice_state.playback_position);
         }
 
         // Advance playback position
-        voice_state.state.playback_position += 1;
+        voice_state.playback_position += 1;
 
         // Check if current sample finished
-        if voice_state.state.playback_position >= buffer.length && voice_state.crossfade.is_none() {
-            // Schedule next sample
+        if voice_state.playback_position >= buffer.length && cont_state.crossfade.is_none() {
+            // Schedule next sample using cached scheduler (no creation needed)
             let mut rng = thread_rng();
-            let scheduler = ContinuousScheduler::new(500, 5000);
-            let next_event = scheduler.schedule_event(config.sample_pool.len(), &mut rng);
+            let next_event = cont_state
+                .scheduler
+                .schedule_event(config.sample_pool.len(), &mut rng);
             println!("next event: {next_event:?}");
 
             // Start crossfade
+            let overlap_ms = match &config.mode {
+                VoiceMode::Continuous { overlap_ms } => *overlap_ms,
+                _ => unreachable!(),
+            };
             let overlap_samples = (sample_rate as f32 * overlap_ms as f32 / 1000.0) as usize;
-            voice_state.crossfade = Some(CrossfadeState {
-                old_sample_idx: voice_state.state.current_sample_index,
+            cont_state.crossfade = Some(CrossfadeState {
+                old_sample_idx: voice_state.current_sample_index,
                 new_sample_idx: next_event.sample_index,
                 overlap_duration: next_event.overlap_samples.min(overlap_samples),
                 overlap_position: 0,
             });
-            voice_state.state.playback_position = 0;
+            voice_state.playback_position = 0;
         }
 
         // Apply panning and return stereo output
@@ -256,49 +306,46 @@ impl SynthesisEngine {
     /// Process a discrete-mode voice for one frame.
     fn process_discrete_voice(
         config: &VoiceConfig,
-        voice_state: &mut VoiceSynthesisState,
+        voice_state: &mut VoiceState,
+        disc_state: &mut DiscreteSynthesisState,
         sample_cache: &SampleCache,
         sample_rate: u32,
-        probability: f32,
-        min_delay_ms: u32,
-        max_delay_ms: u32,
     ) -> (f32, f32) {
         let mut sample_value = 0.0;
 
         // If waiting for next event, count down
-        if voice_state.state.next_event_countdown > 0 {
-            voice_state.state.next_event_countdown -= 1;
+        if voice_state.next_event_countdown > 0 {
+            voice_state.next_event_countdown -= 1;
         } else {
-            // Time to trigger a new event
+            // Time to trigger a new event using cached scheduler (no creation needed)
             let mut rng = thread_rng();
-            // Convert ms to samples
-            let min_delay_samples = (sample_rate as f32 * min_delay_ms as f32 / 1000.0) as usize;
-            let max_delay_samples = (sample_rate as f32 * max_delay_ms as f32 / 1000.0) as usize;
-            let scheduler =
-                DiscreteScheduler::new(probability, min_delay_samples, max_delay_samples);
-
-            if let Some(event) = scheduler.schedule_event(config.sample_pool.len(), &mut rng, sample_rate as usize) {
+            if let Some(event) = disc_state.scheduler.schedule_event(
+                config.sample_pool.len(),
+                &mut rng,
+                sample_rate as usize,
+            ) {
                 println!("discrete event: {event:?}");
                 // Start playing the triggered sample
-                voice_state.state.current_sample_index = event.sample_index;
-                voice_state.state.playback_position = 0;
+                voice_state.current_sample_index = event.sample_index;
+                voice_state.playback_position = 0;
                 // Schedule next event trigger after this one finishes plus delay
-                voice_state.state.next_event_countdown = event.delay_samples;
+                voice_state.next_event_countdown = event.delay_samples;
             }
         }
 
         // If currently playing a sample, output its current frame
-        let sample_idx = voice_state.state.current_sample_index;
+        let sample_idx = voice_state.current_sample_index;
         if sample_idx < config.sample_pool.len()
-            && let Some(buffer) = sample_cache.get(&config.sample_pool[sample_idx]) {
-                if voice_state.state.playback_position < buffer.length {
-                    sample_value = buffer.sample_left(voice_state.state.playback_position);
-                    voice_state.state.playback_position += 1;
-                } else {
-                    // Sample finished, stop playback
-                    voice_state.state.current_sample_index = config.sample_pool.len();
-                }
+            && let Some(buffer) = sample_cache.get(&config.sample_pool[sample_idx])
+        {
+            if voice_state.playback_position < buffer.length {
+                sample_value = buffer.sample_left(voice_state.playback_position);
+                voice_state.playback_position += 1;
+            } else {
+                // Sample finished, stop playback
+                voice_state.current_sample_index = config.sample_pool.len();
             }
+        }
 
         // Apply panning
         let mut mixer = StereoMixer::new();

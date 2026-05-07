@@ -1,0 +1,21 @@
+# Songbird Example Configuration: Sine Wave Demo
+# This configuration demonstrates:
+# - Continuous voice: Smoothly crossfading between sine waves
+# - Discrete voice: Probabilistic bursts of different frequencies
+# - Stereo panning: Voices positioned left and right
+
+
+sample_rate: 44100
+sample_dir: samples
+
+voices:
+  # Continuous voice: Ambient background with smooth transitions
+  - id: ambient_sine
+    mode: continuous
+    overlap_ms: 1000          # 1 second crossfade between samples
+    samples:
+      - sine_220hz.wav  # A3 (low frequency)
+      - sine_440hz.wav  # A4 (middle frequency)
+      - sine_880hz.wav
+    pan: 0.0                # Center-left
+

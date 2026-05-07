@@ -65,7 +65,12 @@ fn create_audio_device(
     Ok(Box::new(StubAudioDevice::new(format)?))
 }
 
-fn build_and_preload_voices(synthesis_engine: &mut SynthesisEngine, config: &songbird::config::parser::Config, voices_yaml: &[songbird::config::parser::VoiceConfigYaml], verbose: bool) -> Vec<songbird::voices::VoiceConfig> {
+fn build_and_preload_voices(
+    synthesis_engine: &mut SynthesisEngine,
+    config: &songbird::config::parser::Config,
+    voices_yaml: &[songbird::config::parser::VoiceConfigYaml],
+    verbose: bool,
+) -> Vec<songbird::voices::VoiceConfig> {
     let mut new_voice_configs = Vec::new();
 
     for voice in voices_yaml {
@@ -80,7 +85,10 @@ fn build_and_preload_voices(synthesis_engine: &mut SynthesisEngine, config: &son
 
                     for p in &full_paths {
                         if !synthesis_engine.sample_cache().contains(p) {
-                            if let Err(e) = synthesis_engine.sample_cache_mut().load_and_cache(p.clone(), p.clone()) {
+                            if let Err(e) = synthesis_engine
+                                .sample_cache_mut()
+                                .load_and_cache(p.clone(), p.clone())
+                            {
                                 eprintln!("⚠ Warning: Failed to load sample {}: {}", p, e);
                             } else if verbose {
                                 println!("  ✓ Loaded: {}", p);
@@ -94,7 +102,10 @@ fn build_and_preload_voices(synthesis_engine: &mut SynthesisEngine, config: &son
                 new_voice_configs.push(vc);
             }
             Err(e) => {
-                eprintln!("⚠ Warning: Failed to convert voice config for {}: {}", voice.id, e);
+                eprintln!(
+                    "⚠ Warning: Failed to convert voice config for {}: {}",
+                    voice.id, e
+                );
             }
         }
     }
@@ -168,7 +179,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut synthesis_engine = SynthesisEngine::new(effective_sample_rate);
 
     // Build voice configs and preload samples using shared helper
-    let new_voice_configs = build_and_preload_voices(&mut synthesis_engine, &config, &voices_yaml, verbose);
+    let new_voice_configs =
+        build_and_preload_voices(&mut synthesis_engine, &config, &voices_yaml, verbose);
 
     // Atomically populate engine voices for startup
     synthesis_engine.replace_voices(new_voice_configs);
@@ -177,10 +189,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for voice in &voices_yaml {
         if let Ok(_) = voice.to_voice_config() {
             if verbose {
-                println!("  ✓ Voice: mode={}, pan={:.2}", &voice.mode, voice.pan.unwrap_or(0.0));
+                println!(
+                    "  ✓ Voice: mode={}, pan={:.2}",
+                    &voice.mode,
+                    voice.pan.unwrap_or(0.0)
+                );
             }
         } else if verbose {
-            eprintln!("⚠ Warning: Failed to convert voice config for {}", &voice.id);
+            eprintln!(
+                "⚠ Warning: Failed to convert voice config for {}",
+                &voice.id
+            );
         }
     }
 
@@ -264,13 +283,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref mut watcher) = _watcher {
             if let Some(evt) = watcher.check_debounced_change(reload_debounce) {
                 match evt {
-                    songbird::config::ConfigChangeEvent::Modified(_) | songbird::config::ConfigChangeEvent::Created(_) => {
+                    songbird::config::ConfigChangeEvent::Modified(_)
+                    | songbird::config::ConfigChangeEvent::Created(_) => {
                         // Check file modification time and only reload if it changed since last applied reload
                         match std::fs::metadata(config_file).and_then(|m| m.modified()) {
                             Ok(mtime) => {
-                                if let Some(last_mtime) = last_applied_mtime && mtime <= last_mtime {
+                                if let Some(last_mtime) = last_applied_mtime
+                                    && mtime <= last_mtime
+                                {
                                     if verbose {
-                                        println!("⚠ Reload suppressed (no new modification on disk)");
+                                        println!(
+                                            "⚠ Reload suppressed (no new modification on disk)"
+                                        );
                                     }
                                 } else {
                                     last_applied_mtime = Some(mtime);
@@ -283,13 +307,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     match ConfigParser::parse(config_file) {
                                         Ok(new_config) => {
                                             // If sample rate changed, warn and ignore
-                                            if new_config.sample_rate != config.sample_rate && verbose {
-                                                println!("⚠ Sample rate change detected in config; ignoring at runtime. Restart required to change sample rate.");
+                                            if new_config.sample_rate != config.sample_rate
+                                                && verbose
+                                            {
+                                                println!(
+                                                    "⚠ Sample rate change detected in config; ignoring at runtime. Restart required to change sample rate."
+                                                );
                                             }
 
                                             // Use shared helper to build voice configs and preload samples
-                                            let voices_yaml = new_config.voices.clone().unwrap_or_default();
-                                            let new_voice_configs = build_and_preload_voices(&mut synthesis_engine, &new_config, &voices_yaml, verbose);
+                                            let voices_yaml =
+                                                new_config.voices.clone().unwrap_or_default();
+                                            let new_voice_configs = build_and_preload_voices(
+                                                &mut synthesis_engine,
+                                                &new_config,
+                                                &voices_yaml,
+                                                verbose,
+                                            );
 
                                             // Atomically replace voices in the synthesis engine.
                                             synthesis_engine.replace_voices(new_voice_configs);

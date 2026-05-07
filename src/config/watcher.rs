@@ -150,13 +150,22 @@ impl ConfigWatcher {
                 self.debounce_deadline = None;
 
                 // Prefer to surface modification/creation events; otherwise report the first error
-                let has_modify = events.iter().any(|e| matches!(e, ConfigChangeEvent::Modified(_) | ConfigChangeEvent::Created(_)));
+                let has_modify = events.iter().any(|e| {
+                    matches!(
+                        e,
+                        ConfigChangeEvent::Modified(_) | ConfigChangeEvent::Created(_)
+                    )
+                });
                 if has_modify {
                     // Return the first modification/creation event we saw
                     for e in &events {
                         match e {
-                            ConfigChangeEvent::Modified(p) => return Some(ConfigChangeEvent::Modified(p.clone())),
-                            ConfigChangeEvent::Created(p) => return Some(ConfigChangeEvent::Created(p.clone())),
+                            ConfigChangeEvent::Modified(p) => {
+                                return Some(ConfigChangeEvent::Modified(p.clone()));
+                            }
+                            ConfigChangeEvent::Created(p) => {
+                                return Some(ConfigChangeEvent::Created(p.clone()));
+                            }
                             _ => continue,
                         }
                     }
