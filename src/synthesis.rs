@@ -59,10 +59,11 @@ impl VoiceSynthesisState {
 
         let mode_state = match &config.mode {
             VoiceMode::Continuous { overlap_ms } => {
-                // Derive min/max overlap from overlap_ms (±20% variance).
-                // This allows natural variation in crossfade durations.
-                let min_overlap = (*overlap_ms as f32 * 0.8) as usize;
-                let max_overlap = (*overlap_ms as f32 * 1.2) as usize;
+                // Convert overlap duration from milliseconds to samples.
+                // Then derive min/max with ±20% variance for natural variation.
+                let overlap_samples = (sample_rate as f32 * *overlap_ms as f32 / 1000.0) as usize;
+                let min_overlap = (overlap_samples as f32 * 0.8) as usize;
+                let max_overlap = (overlap_samples as f32 * 1.2) as usize;
                 VoiceSynthesisMode::Continuous(ContinuousSynthesisState {
                     scheduler: ContinuousScheduler::new(min_overlap, max_overlap),
                     crossfade: None,
