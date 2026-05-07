@@ -12,7 +12,7 @@ voices:
   # Continuous voice: Ambient background with smooth transitions
   - id: ambient_sine
     mode: continuous
-    overlap_ms: 1000          # 1 second crossfade between samples
+    overlap_ms: 100          # 1 second crossfade between samples
     samples:
       - sine_220hz.wav  # A3 (low frequency)
       - sine_440hz.wav  # A4 (middle frequency)

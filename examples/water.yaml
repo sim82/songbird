@@ -5,15 +5,15 @@ sample_dir: samples
 voices:
   - id: ambient_sine
     mode: continuous
-    overlap_ms: 10          
+    overlap_ms: 100          
     samples:
       - creek01.wav 
       - creek02.wav 
       - creek32.wav
-    pan: -0.1                
+    pan: -0.3                
   - id: accent_sine
     mode: discrete
-    probability: 0.3       
+    probability: 2.0       
     min_delay_ms: 500      
     max_delay_ms: 10000    
     samples:
@@ -21,7 +21,17 @@ voices:
       - bird02.wav
       - bird03.wav
       - bird04.wav
-    pan: 0.1                 
+      - bird05.wav
+      - bird06.wav
+      - bird07.wav
+      - bird08.wav
+      - bird09.wav
+      - bird10.wav
+      - bird11.wav
+      - bird12.wav
+      - bird13.wav
+      - bird14.wav
+    pan: 0.3                 
 
 
 # Notes:
