@@ -95,17 +95,17 @@ impl BinauralRenderer {
         };
 
         // 3. Apply head shadowing (1-pole LPF to opposite channel)
-        // Only apply LPF at significant pan angles (>0.2) to avoid over-filtering at small pans.
-        // Interpolate LPF cutoff from 1500Hz at pan=1.0 using quadratic curve for smooth falloff.
-        let pan_threshold = 0.2;
+        // Only apply head shadowing at extreme pan angles (>0.75) to preserve audio clarity
+        // at moderate pans. Head shadowing primarily affects extreme side-positioned sources.
+        let pan_threshold = 0.75;
         let (final_left, final_right) = if pan.abs() < pan_threshold {
-            // Near center: skip head shadowing, use ITD+ILD only
+            // Moderate pan: ITD + ILD only, no head shadowing
             (left_with_itd, right_with_itd)
         } else {
-            // Significant pan: apply head shadowing with quadratic falloff
-            // At pan=0.2: small effect; at pan=1.0: full 1500Hz LPF
+            // Extreme pan (>0.75): apply head shadowing LPF
+            // Linear interpolation from minimal effect at 0.75 to full 1500Hz LPF at 1.0
             let normalized_pan = (pan.abs() - pan_threshold) / (1.0 - pan_threshold);
-            let effective_cutoff_hz = self.lpf_cutoff_hz * normalized_pan * normalized_pan;
+            let effective_cutoff_hz = self.lpf_cutoff_hz * normalized_pan;
             let lpf_alpha = self.compute_lpf_coefficient(effective_cutoff_hz);
 
             if pan < 0.0 {
