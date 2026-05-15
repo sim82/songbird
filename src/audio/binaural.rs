@@ -95,21 +95,28 @@ impl BinauralRenderer {
         };
 
         // 3. Apply head shadowing (1-pole LPF to opposite channel)
-        // Interpolate LPF cutoff: 0Hz at center, 1500Hz at full pan
-        let effective_cutoff_hz = self.lpf_cutoff_hz * pan.abs();
-        let lpf_alpha = self.compute_lpf_coefficient(effective_cutoff_hz);
-
-        let (final_left, final_right) = if pan < 0.0 {
-            // Left pan: apply LPF to right channel
-            let filtered_right = self.apply_lpf_filter_right(right_with_itd, lpf_alpha);
-            (left_with_itd, filtered_right)
-        } else if pan > 0.0 {
-            // Right pan: apply LPF to left channel
-            let filtered_left = self.apply_lpf_filter_left(left_with_itd, lpf_alpha);
-            (filtered_left, right_with_itd)
-        } else {
-            // Center: no LPF
+        // Only apply LPF at significant pan angles (>0.2) to avoid over-filtering at small pans.
+        // Interpolate LPF cutoff from 1500Hz at pan=1.0 using quadratic curve for smooth falloff.
+        let pan_threshold = 0.2;
+        let (final_left, final_right) = if pan.abs() < pan_threshold {
+            // Near center: skip head shadowing, use ITD+ILD only
             (left_with_itd, right_with_itd)
+        } else {
+            // Significant pan: apply head shadowing with quadratic falloff
+            // At pan=0.2: small effect; at pan=1.0: full 1500Hz LPF
+            let normalized_pan = (pan.abs() - pan_threshold) / (1.0 - pan_threshold);
+            let effective_cutoff_hz = self.lpf_cutoff_hz * normalized_pan * normalized_pan;
+            let lpf_alpha = self.compute_lpf_coefficient(effective_cutoff_hz);
+
+            if pan < 0.0 {
+                // Left pan: apply LPF to right channel
+                let filtered_right = self.apply_lpf_filter_right(right_with_itd, lpf_alpha);
+                (left_with_itd, filtered_right)
+            } else {
+                // Right pan: apply LPF to left channel
+                let filtered_left = self.apply_lpf_filter_left(left_with_itd, lpf_alpha);
+                (filtered_left, right_with_itd)
+            }
         };
 
         (final_left, final_right)

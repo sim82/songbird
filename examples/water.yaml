@@ -10,7 +10,7 @@ voices:
       - creek01.wav 
       - creek02.wav 
       - creek32.wav
-    pan: -0.3                
+    pan: 0.01
   - id: accent_sine
     mode: discrete
     probability: 2.0       
