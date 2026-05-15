@@ -1,5 +1,6 @@
 //! Audio buffer primitives and audio processing infrastructure.
 
+pub mod binaural;
 pub mod buffer;
 pub mod mixer;
 pub mod output;
@@ -8,6 +9,7 @@ pub mod wav_writer;
 #[cfg(feature = "alsa")]
 pub mod alsa;
 
+pub use binaural::BinauralRenderer;
 pub use buffer::{AudioBuffer, PlaybackCursor};
 pub use mixer::StereoMixer;
 pub use output::{AudioDevice, AudioError, AudioFormat, AudioOutput, StubAudioDevice};

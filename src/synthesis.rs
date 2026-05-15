@@ -6,7 +6,7 @@
 //! - Discrete mode: Event-driven scheduling with probabilistic triggers
 //! - Voice mixing: Combines all active voices with panning
 
-use crate::audio::StereoMixer;
+use crate::audio::{BinauralRenderer, StereoMixer};
 use crate::samples::SampleCache;
 use crate::voices::{ContinuousScheduler, DiscreteScheduler, VoiceConfig, VoiceMode, VoiceState};
 use rand::thread_rng;
@@ -24,17 +24,19 @@ struct CrossfadeState {
     overlap_position: usize,
 }
 
-/// Continuous-mode synthesis state: scheduler + crossfade.
+/// Continuous-mode synthesis state: scheduler + crossfade + binaural renderer.
 #[derive(Debug)]
 struct ContinuousSynthesisState {
     pub scheduler: ContinuousScheduler,
     pub crossfade: Option<CrossfadeState>,
+    pub renderer: BinauralRenderer,
 }
 
-/// Discrete-mode synthesis state: scheduler only.
+/// Discrete-mode synthesis state: scheduler + binaural renderer.
 #[derive(Debug)]
 struct DiscreteSynthesisState {
     pub scheduler: DiscreteScheduler,
+    pub renderer: BinauralRenderer,
 }
 
 /// Mode-specific synthesis state (scheduler + mode-specific playback state).
@@ -67,6 +69,7 @@ impl VoiceSynthesisState {
                 VoiceSynthesisMode::Continuous(ContinuousSynthesisState {
                     scheduler: ContinuousScheduler::new(min_overlap, max_overlap),
                     crossfade: None,
+                    renderer: BinauralRenderer::new(sample_rate),
                 })
             }
             VoiceMode::Discrete {
@@ -85,6 +88,7 @@ impl VoiceSynthesisState {
                         min_delay_samples,
                         max_delay_samples,
                     ),
+                    renderer: BinauralRenderer::new(sample_rate),
                 })
             }
         };
@@ -298,10 +302,8 @@ impl SynthesisEngine {
             voice_state.playback_position = 0;
         }
 
-        // Apply panning and return stereo output
-        let mut mixer = StereoMixer::new();
-        mixer.set_pan(config.pan);
-        mixer.apply_pan(sample_value)
+        // Apply binaural panning and return stereo output
+        cont_state.renderer.process_binaural(sample_value, config.pan)
     }
 
     /// Process a discrete-mode voice for one frame.
@@ -348,10 +350,8 @@ impl SynthesisEngine {
             }
         }
 
-        // Apply panning
-        let mut mixer = StereoMixer::new();
-        mixer.set_pan(config.pan);
-        mixer.apply_pan(sample_value)
+        // Apply binaural panning
+        disc_state.renderer.process_binaural(sample_value, config.pan)
     }
 
     /// Get number of voices.
